@@ -1,0 +1,347 @@
+================================================================================
+  MANUAL SETUP STEPS — Required before CI/CD pipeline can run
+  Azure E2E Data Engineering Project
+================================================================================
+  Complete steps in order. Each section must be fully done before the next.
+================================================================================
+
+
+────────────────────────────────────────────────────────────────────────────────
+PHASE 1 — ON-PREMISES SQL SERVER SETUP
+────────────────────────────────────────────────────────────────────────────────
+
+[ ] 1.1  Install SQL Server Express
+        https://www.microsoft.com/en-us/sql-server/sql-server-downloads
+
+[ ] 1.2  Install SQL Server Management Studio (SSMS)
+        https://learn.microsoft.com/en-us/sql/ssms/download-sql-server-management-studio-ssms
+
+[ ] 1.3  Download AdventureWorksLT2019.bak
+        https://github.com/Microsoft/sql-server-samples/releases/tag/adventureworks
+
+[ ] 1.4  Copy .bak to SQL Server backup folder:
+        C:\Program Files\Microsoft SQL Server\MSSQL15.SQLEXPRESS\MSSQL\Backup\
+
+[ ] 1.5  Restore AdventureWorksLT2019 in SSMS:
+        Right-click Databases → Restore Database → Device → browse to .bak
+        OR run:
+            RESTORE DATABASE AdventureWorksLT2019
+            FROM DISK = 'C:\Program Files\Microsoft SQL Server\MSSQL15.SQLEXPRESS\MSSQL\Backup\AdventureWorksLT2019.bak'
+            WITH MOVE 'AdventureWorksLT2019_Data' TO '...\DATA\AdventureWorksLT2019.mdf',
+                 MOVE 'AdventureWorksLT2019_Log'  TO '...\DATA\AdventureWorksLT2019.ldf',
+                 REPLACE;
+
+[ ] 1.6  Enable SQL Server Authentication mode:
+        SSMS → right-click server → Properties → Security
+        → set to "SQL Server and Windows Authentication mode" → OK
+
+[ ] 1.7  Restart SQL Server service:
+        Open SQL Server Configuration Manager → SQL Server Services
+        → right-click SQL Server (SQLEXPRESS) → Restart
+
+[ ] 1.8  Create a SQL login for ADF:
+        USE AdventureWorksLT2019;
+        CREATE LOGIN <username> WITH PASSWORD = '<password>';
+        CREATE USER  <username> FOR LOGIN <username>;
+        GRANT SELECT ON SCHEMA::SalesLT TO <username>;
+
+        NOTE: keep username & password — needed for Key Vault secrets (Step 3)
+
+
+────────────────────────────────────────────────────────────────────────────────
+PHASE 2 — AZURE RESOURCE PROVISIONING
+────────────────────────────────────────────────────────────────────────────────
+
+[ ] 2.1  Create Resource Group (RG)
+        Azure Portal → Resource Groups → Create
+        Name: e.g. rg-data-engineering
+
+[ ] 2.2  Create Azure Data Factory
+        Portal → Create resource → Data Factory
+        Region: same as RG
+
+[ ] 2.3  Create Storage Account (ADLS Gen2)
+        Portal → Create resource → Storage Account
+        Name: sadataengineeringproj
+        Enable: Hierarchical namespace (makes it ADLS Gen2)
+        After creation, create 3 containers:
+            bronze  |  silver  |  gold
+
+[ ] 2.4  Create Azure Databricks Workspace
+        Portal → Create resource → Azure Databricks
+        Pricing tier: Premium (required for Unity Catalog)
+
+[ ] 2.5  Create Azure Synapse Analytics Workspace
+        Portal → Create resource → Azure Synapse Analytics
+        Storage account: select sadataengineeringproj
+        File system name: synapse (or any meaningful name)
+
+[ ] 2.6  Create Azure Key Vault
+        Portal → Create resource → Key Vault
+        Name: e.g. kv-dataengproj
+        If RBAC error when creating secrets:
+            RG → Access Control (IAM) → Add role assignment
+            Role: Key Vault Administrator → assign to your account
+
+
+────────────────────────────────────────────────────────────────────────────────
+PHASE 3 — KEY VAULT SECRETS
+────────────────────────────────────────────────────────────────────────────────
+
+  Store all sensitive credentials here. Referenced by ADF and Databricks.
+
+[ ] 3.1  SQL Server credentials (for ADF linked service):
+        Secret name: sql-username    Value: <login from Step 1.8>
+        Secret name: sql-password    Value: <password from Step 1.8>
+
+[ ] 3.2  Service Principal credentials (for Databricks OAuth2):
+        First create the Service Principal — see Phase 4, then come back here.
+        Secret name: sp-client-id      Value: Application (client) ID
+        Secret name: sp-client-secret  Value: Client secret value
+        Secret name: sp-tenant-id      Value: Directory (tenant) ID
+
+
+────────────────────────────────────────────────────────────────────────────────
+PHASE 4 — SERVICE PRINCIPAL (for Databricks → ADLS access)
+────────────────────────────────────────────────────────────────────────────────
+
+[ ] 4.1  Create App Registration in Entra ID:
+        Portal → Microsoft Entra ID → App registrations → New registration
+        Name: sp-databricks-adls
+
+[ ] 4.2  Create a client secret:
+        App Registration → Certificates & secrets → New client secret
+        Copy the VALUE immediately (shown only once)
+
+[ ] 4.3  Note down these 3 values:
+        - Application (client) ID   → Portal → App registration → Overview
+        - Client secret value       → from Step 4.2
+        - Directory (tenant) ID     → Portal → App registration → Overview
+
+[ ] 4.4  Store all 3 in Key Vault (Step 3.2 above)
+
+[ ] 4.5  Grant Service Principal access to ADLS Gen2:
+        Portal → sadataengineeringproj → Access Control (IAM)
+        → Add role assignment → Storage Blob Data Contributor
+        → Members: select the App Registration (sp-databricks-adls)
+
+
+────────────────────────────────────────────────────────────────────────────────
+PHASE 5 — AZURE DATA FACTORY SETUP
+────────────────────────────────────────────────────────────────────────────────
+
+[ ] 5.1  Install Self-hosted Integration Runtime on your local machine:
+        ADF Studio → Manage → Integration Runtimes → New
+        → Self-hosted → Express installation (downloads & registers automatically)
+        Confirm it shows as Running in Integration Runtimes list
+
+[ ] 5.2  Create Linked Service for SQL Server (on-prem):
+        ADF Studio → Manage → Linked Services → New → SQL Server
+        - Runtime: your self-hosted IR
+        - Server name: DESKTOP-ENHKM1F\SQLEXPRESS  (from SSMS)
+        - Database: AdventureWorksLT2019
+        - Auth: SQL Authentication
+        - Username/Password: from Key Vault (use KV linked service)
+        - Encryption: Optional  ← important, avoids HTTPS cert error
+        Test connection → Create
+
+[ ] 5.3  Create Linked Service for ADLS Gen2:
+        ADF Studio → Manage → Linked Services → New → Azure Data Lake Gen2
+        - Storage account: sadataengineeringproj
+        - Auth: Account key or Managed Identity
+        - If soft delete error: Storage Account → Data Protection
+          → uncheck "Enable soft delete for blobs"
+        Test connection → Create
+
+[ ] 5.4  Grant ADF Managed Identity access to Key Vault:
+        Portal → kv-dataengproj → Access Control (IAM)
+        → Add: Key Vault Secrets User → Member: ADF managed identity
+
+[ ] 5.5  Create ADF pipeline (copy all SalesLT tables to bronze):
+        Pattern: Lookup → ForEach → Copy Data
+        Source query:
+            SELECT s.name AS SchemaName, t.name AS TableName
+            FROM sys.tables t
+            INNER JOIN sys.schemas s ON t.schema_id = s.schema_id
+            WHERE s.name = 'SalesLT'
+        Sink path format:  bronze/SalesLT/<TableName>/<TableName>.parquet
+        Validate → Publish All → Trigger Now to test
+
+[ ] 5.6  Verify bronze container in ADLS has all SalesLT folders & parquet files
+
+
+────────────────────────────────────────────────────────────────────────────────
+PHASE 6 — DATABRICKS SETUP
+────────────────────────────────────────────────────────────────────────────────
+
+[ ] 6.1  Launch Databricks workspace → Compute → Create cluster
+        - Single node, single user
+        - Runtime: latest LTS standard
+        - Node type: smallest available
+        - Terminate after: 15 min idle
+        Wait for cluster to start
+
+[ ] 6.2  Create Databricks Secret Scope (links to Key Vault):
+        Open in browser:
+            https://<your-databricks-url>#secrets/createScope
+        - Scope name:   kv-scope
+        - DNS Name:     https://kv-dataengproj.vault.azure.net/
+        - Resource ID:  Portal → kv-dataengproj → Properties → Resource ID
+
+[ ] 6.3  Upload notebooks from repo to Databricks Workspace:
+        Databricks → Workspace → Shared → Import
+        Upload all 3 notebooks:
+            databricks/storagemount.ipynb
+            databricks/bronze to silver - extended.ipynb
+            databricks/silver to gold - extended.ipynb
+
+[ ] 6.4  Run storagemount notebook:
+        Open storagemount → attach to cluster → Run All
+        Verify: "✅ Spark OAuth2 config set" and paths printed correctly
+        Verify: BRONZE/SalesLT/ shows all 10 tables
+
+[ ] 6.5  Run bronze to silver notebook:
+        Open → attach cluster → Run All
+        Verify: all 10 tables show "✅ <table> → silver/SalesLT/<table>/"
+
+[ ] 6.6  Run silver to gold notebook:
+        Open → attach cluster → Run All
+        Verify: all 10 tables show "✅ <table> → gold/SalesLT/<table>/"
+
+
+────────────────────────────────────────────────────────────────────────────────
+PHASE 7 — ADD DATABRICKS TO ADF PIPELINE
+────────────────────────────────────────────────────────────────────────────────
+
+[ ] 7.1  Generate Databricks access token:
+        Databricks → top-right username → Settings → Developer
+        → Access tokens → Generate new token → Copy value
+
+[ ] 7.2  Store token in Key Vault:
+        Secret name: databricks-token    Value: <token from 7.1>
+
+[ ] 7.3  Create ADF Linked Service for Databricks:
+        ADF Studio → Manage → Linked Services → New → Azure Databricks
+        - Runtime: AutoResolveIntegrationRuntime
+        - Cluster: Existing cluster (select your cluster ID)
+        - Auth: Access Token → from Key Vault (databricks-token)
+        Test connection → Create → Publish All
+
+[ ] 7.4  Add Databricks notebook activities to the ADF pipeline:
+        After ForEach (copy) activity:
+        - Add Notebook activity → bronze to silver → On Success
+        - Add Notebook activity → silver to gold   → On Success (chained)
+        Publish All → Trigger Now → Monitor to confirm all steps pass
+
+
+────────────────────────────────────────────────────────────────────────────────
+PHASE 8 — SYNAPSE ANALYTICS SETUP
+────────────────────────────────────────────────────────────────────────────────
+
+[ ] 8.1  Grant Synapse Managed Identity access to ADLS:
+        Portal → sadataengineeringproj → Access Control (IAM)
+        → Add: Storage Blob Data Reader → Member: Synapse managed identity
+
+[ ] 8.2  Open Synapse Studio → Data → + → SQL Database
+        - Type: Serverless SQL Pool
+        - Name: gold_db → Create
+
+[ ] 8.3  Create stored procedure in Synapse (Develop → + → SQL script):
+        Import script: sp_CreateSQLServerlessView_gold
+        (Creates/alters views over gold Delta Lake files via OPENROWSET)
+        Publish
+
+[ ] 8.4  Create Linked Service for serverless SQL in Synapse:
+        Manage → Linked Services → New → Azure SQL Database
+        - Auth: System-assigned Managed Identity
+        - Server: Synapse workspace → Settings/Properties
+                  → copy Serverless SQL endpoint
+        - Database: gold_db
+        Test connection → Create → Publish All
+
+[ ] 8.5  Create Synapse pipeline to build views for all gold tables:
+        Pattern: Get Metadata (child items of gold/SalesLT/)
+                 → ForEach → Stored Procedure activity
+        Stored procedure param: ViewName = @item().name
+        Publish All → Trigger Now
+        Verify: Data → gold_db → Views → all 10 views present
+
+
+────────────────────────────────────────────────────────────────────────────────
+PHASE 9 — POWER BI DASHBOARD
+────────────────────────────────────────────────────────────────────────────────
+
+[ ] 9.1  Install Power BI Desktop (Windows only):
+        Microsoft Store → search "Power BI Desktop" → Install
+
+[ ] 9.2  Connect to Synapse:
+        Power BI Desktop → Get Data → Azure → Synapse Analytics
+        - Server: Serverless SQL endpoint (from Synapse properties)
+        - Database: gold_db
+        - Mode: Import
+        Sign in with your Azure Portal email → Connect
+
+[ ] 9.3  Select all 10 views → Load
+
+[ ] 9.4  Set up Data Model relationships:
+        Modelling tab → Manage Relationships → define joins
+        e.g. CustomerAddress ↔ Address (customer_address_id)
+             SalesOrderHeader ↔ Customer (customer_id)
+
+[ ] 9.5  Build report visuals (Report tab):
+        - Card:         Count of product_id     (from Product)
+        - Card:         Sum of line_total        (from SalesOrderDetail)
+        - Donut chart:  Title (legend + values)  (from Customer — infers gender)
+        - Slicer:       Title                    (filter by gender)
+        - Slicer:       Category name            (from ProductCategory)
+
+[ ] 9.6  Save .pbix file → docs/dataengproj-dash.pbix
+
+
+────────────────────────────────────────────────────────────────────────────────
+PHASE 10 — SECURITY & GOVERNANCE (Entra ID)
+────────────────────────────────────────────────────────────────────────────────
+
+[ ] 10.1 Create security group in Entra ID:
+         Portal → Microsoft Entra ID → Groups → New group
+         - Type: Security
+         - Name: e.g. data-engineering-team
+         - Add owners: your admin account
+         - Add members: team members
+
+[ ] 10.2 Assign group to Resource Group:
+         RG → Access Control (IAM) → Add role assignment
+         → Select appropriate role (e.g. Reader or Contributor)
+         → Members: select your security group
+
+
+────────────────────────────────────────────────────────────────────────────────
+PHASE 11 — END-TO-END TEST
+────────────────────────────────────────────────────────────────────────────────
+
+[ ] 11.1 Schedule ADF pipeline:
+         ADF Studio → Pipeline → Add trigger → New/Edit
+         - Type: Schedule
+         - Recurrence: Every 1 day at desired time
+         Publish All
+
+[ ] 11.2 Insert a test row in SSMS to verify pipeline picks it up:
+         USE AdventureWorksLT2019;
+         INSERT INTO SalesLT.Product
+             (Name, ProductNumber, Color, StandardCost, ListPrice,
+              Size, Weight, ProductCategoryID, ProductModelID,
+              SellStartDate, SellEndDate, DiscontinuedDate,
+              ThumbNailPhoto, ThumbnailPhotoFileName, rowguid, ModifiedDate)
+         VALUES
+             ('Test Product', 'TP-001', 'Blue', 10.00, 25.00,
+              'M', 1.0, 3, 12, '2024-01-01', NULL, NULL,
+              0x, 'thumb.jpg', NEWID(), GETDATE());
+
+[ ] 11.3 Wait for scheduled trigger → Monitor in ADF
+[ ] 11.4 Refresh Power BI report → Home → Refresh
+[ ] 11.5 Confirm product count increased by 1 ✅
+
+
+────────────────────────────────────────────────────────────────────────────────
+  ✅ ALL MANUAL STEPS COMPLETE — CI/CD can now take over for ongoing deployments
+────────────────────────────────────────────────────────────────────────────────
