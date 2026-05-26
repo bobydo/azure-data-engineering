@@ -64,6 +64,34 @@ To meet these requirements, the solution is broken down into the following compo
 - **Azure Key Vault**: For securely managing credentials and secrets.
 - **Azure Entra ID** *(formerly Active Directory)*: For identity management and role-based access control (RBAC).
 - **SQL Server Express + SSMS (On-Premises)**: Source of customer and sales data (AdventureWorksLT2019).
+- **Azure CLI**: For scripted, idempotent resource provisioning across dev / UAT / prod environments.
+
+## Infrastructure as Code
+
+Azure resources are provisioned via [`infra/provision_step1.sh`](infra/provision_step1.sh) using the Azure CLI. The script is **idempotent** — safe to re-run at any time; existing resources are detected and skipped automatically.
+
+The environment is passed as a parameter, keeping dev / UAT / prod fully isolated with separate resource groups and uniquely named resources:
+
+```bash
+bash infra/provision_step1.sh dev    # → rg-data-engineering-dev,  *-dev resources
+bash infra/provision_step1.sh uat    # → rg-data-engineering-uat,  *-uat resources
+bash infra/provision_step1.sh prod   # → rg-data-engineering-prod, *-prod resources
+```
+
+Shared config lives in [`infra/config.sh`](infra/config.sh); per-environment overrides in `infra/config.{env}.sh`. Secrets are kept out of source control via `infra/secrets.sh` (gitignored locally) or GitHub Secrets in CI/CD. Databricks notebooks accept `storage_account` as a widget parameter so the same notebook logic runs across all environments — only the target storage account changes.
+
+### Globally-unique resource names
+
+Azure Data Factory and Storage Account names must be **globally unique** across all Azure tenants. A fixed date suffix (`UNIQUE_SUFFIX` in [`infra/config.sh`](infra/config.sh)) is appended to avoid collisions and the ~30-minute name reservation Azure holds after a resource is deleted.
+
+> **Current suffix: `260524`** (set 2026-05-24 — update manually in `config.sh` only if you need to recreate resources with a fresh name)
+
+| Resource | dev | uat | prod |
+|---|---|---|---|
+| Storage Account | `sadataeng260524dev` | `sadataeng260524uat` | `sadataeng260524prod` |
+| Azure Data Factory | `adf-data-260524-dev` | `adf-data-260524-uat` | `adf-data-260524-prod` |
+
+---
 
 ## Setup Instructions
 

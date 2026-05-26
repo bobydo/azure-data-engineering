@@ -1,0 +1,145 @@
+#!/usr/bin/env bash
+# =============================================================================
+# service-principal_step3.sh — Phase 4: Create Service Principal for ADLS Access
+# Azure E2E Data Engineering Project
+#
+# Creates a Service Principal and grants it Storage Blob Data Contributor on
+# the ADLS Gen2 storage account so Databricks can authenticate via OAuth2.
+#
+# Idempotent: if the SP already exists (same display name), reuses it and
+# only creates a new client secret if --reset-secret is passed.
+#
+# Prerequisites:
+#   Phase 2 complete (provision_step1.sh) — storage account must exist
+#
+# Usage:
+#   bash infra/service-principal_step3.sh [dev|uat|prod]   (default: dev)
+#   bash infra/service-principal_step3.sh dev --reset-secret  # rotate client secret
+#
+# After this script:
+#   1. Copy the printed SP_CLIENT_ID / SP_CLIENT_SECRET / SP_TENANT_ID
+#      into infra/secrets.sh
+#   2. Re-run: bash infra/keyvault-secrets_step2.sh dev
+# =============================================================================
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# 1. Load shared config
+source "$SCRIPT_DIR/config.sh"
+
+# 2. Load env-specific overrides
+TARGET_ENV="${1:-dev}"
+case "$TARGET_ENV" in
+    dev|uat|prod) ;;
+    *) echo "❌ Invalid environment '$TARGET_ENV'. Allowed: dev | uat | prod" && exit 1 ;;
+esac
+source "$SCRIPT_DIR/config.${TARGET_ENV}.sh"
+
+RESET_SECRET="${2:-}"
+SP_DISPLAY_NAME="sp-data-engineering-${TARGET_ENV}"
+
+echo "ℹ️  Environment    : $TARGET_ENV"
+echo "ℹ️  SP Display Name: $SP_DISPLAY_NAME"
+echo "ℹ️  Storage Account: $STORAGE_ACCOUNT"
+
+echo ""
+echo "══════════════════════════════════════════════════════"
+echo " Phase 4 — Service Principal: $SP_DISPLAY_NAME"
+echo "══════════════════════════════════════════════════════"
+
+# =============================================================================
+# 4.1 — Create or reuse Service Principal
+# =============================================================================
+echo ""
+echo "── 4.1 Service Principal ──"
+EXISTING_APP_ID=$(az ad app list \
+    --display-name "$SP_DISPLAY_NAME" \
+    --query        "[0].appId" \
+    -o tsv 2>/dev/null || true)
+
+if [[ -n "$EXISTING_APP_ID" && "$EXISTING_APP_ID" != "None" ]]; then
+    echo "   ⏭️  Already exists (appId: $EXISTING_APP_ID)"
+    SP_CLIENT_ID="$EXISTING_APP_ID"
+
+    if [[ "$RESET_SECRET" == "--reset-secret" ]]; then
+        echo "   🔄 Resetting client secret..."
+        SECRET_JSON=$(az ad app credential reset \
+            --id    "$SP_CLIENT_ID" \
+            --years 2 \
+            --output json 2>/dev/null)
+        SP_CLIENT_SECRET=$(echo "$SECRET_JSON" | grep -o '"password": *"[^"]*"' | cut -d'"' -f4)
+        echo "   ✅ Secret reset"
+    else
+        echo "   ℹ️  To rotate the secret: bash infra/service-principal_step3.sh $TARGET_ENV --reset-secret"
+        SP_CLIENT_SECRET="<existing — check secrets.sh or Key Vault>"
+    fi
+else
+    echo "   ⏳  Creating..."
+    SECRET_JSON=$(az ad sp create-for-rbac \
+        --name   "$SP_DISPLAY_NAME" \
+        --years  2 \
+        --output json 2>/dev/null)
+    SP_CLIENT_ID=$(echo     "$SECRET_JSON" | grep -o '"appId": *"[^"]*"'    | cut -d'"' -f4)
+    SP_CLIENT_SECRET=$(echo "$SECRET_JSON" | grep -o '"password": *"[^"]*"' | cut -d'"' -f4)
+    echo "   ✅ Created (appId: $SP_CLIENT_ID)"
+fi
+
+# SP tenant ID is always the subscription tenant
+SP_TENANT_ID=$(az account show --query tenantId -o tsv)
+
+# =============================================================================
+# 4.2 — Assign Storage Blob Data Contributor on the ADLS storage account
+#        Databricks needs this to read/write bronze / silver / gold containers
+# Note: az role assignment list fails for MSA (outlook.com) accounts.
+#       Skip the check — attempt create directly and swallow RoleAssignmentExists.
+# =============================================================================
+echo ""
+echo "── 4.2 Role: Storage Blob Data Contributor → $STORAGE_ACCOUNT ──"
+STORAGE_RESOURCE_ID=$(az storage account show \
+    --name  "$STORAGE_ACCOUNT" \
+    --query id \
+    -o tsv 2>/dev/null)
+
+# Get SP object ID (not appId) — required for --assignee-object-id
+SP_OBJECT_ID=$(az ad sp show --id "$SP_CLIENT_ID" --query id -o tsv 2>/dev/null)
+
+ASSIGN_OUTPUT=$(az role assignment create \
+    --assignee-object-id      "$SP_OBJECT_ID" \
+    --assignee-principal-type ServicePrincipal \
+    --role                    "Storage Blob Data Contributor" \
+    --scope                   "$STORAGE_RESOURCE_ID" \
+    --output                  json 2>&1 || true)
+
+if echo "$ASSIGN_OUTPUT" | grep -q "RoleAssignmentExists"; then
+    echo "   ⏭️  Already assigned — skipping"
+elif echo "$ASSIGN_OUTPUT" | grep -q "roleDefinitionId"; then
+    echo "   ✅ Role assigned"
+else
+    echo "   ⚠️  Could not assign role via CLI (MSA limitation) — assign manually:"
+    echo "      Portal → Storage '$STORAGE_ACCOUNT' → Access Control (IAM)"
+    echo "      → Add role assignment → Storage Blob Data Contributor → $SP_DISPLAY_NAME"
+fi
+
+# =============================================================================
+# Done — print values to paste into secrets.sh
+# =============================================================================
+echo ""
+echo "══════════════════════════════════════════════════════"
+echo " ✅ Phase 4 Complete"
+echo "══════════════════════════════════════════════════════"
+echo ""
+echo "Copy these into infra/secrets.sh:"
+echo "──────────────────────────────────────────────────────"
+echo "SP_CLIENT_ID=\"$SP_CLIENT_ID\""
+echo "SP_CLIENT_SECRET=\"$SP_CLIENT_SECRET\""
+echo "SP_TENANT_ID=\"$SP_TENANT_ID\""
+echo "──────────────────────────────────────────────────────"
+echo ""
+echo "⚠️  SP_CLIENT_SECRET is shown ONCE — save it now."
+echo "   To rotate later: bash infra/service-principal_step3.sh $TARGET_ENV --reset-secret"
+echo ""
+echo "Next steps:"
+echo "  1. Paste the values above into infra/secrets.sh"
+echo "  2. bash infra/keyvault-secrets_step2.sh $TARGET_ENV   # push SP secrets to Key Vault"

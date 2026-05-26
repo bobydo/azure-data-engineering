@@ -7,22 +7,22 @@
 
 
 ────────────────────────────────────────────────────────────────────────────────
-PHASE 1 — ON-PREMISES SQL SERVER SETUP
+PHASE 1 — ON-PREMISES SQL SERVER SETUP                              ✅ COMPLETE
 ────────────────────────────────────────────────────────────────────────────────
 
-[ ] 1.1  Install SQL Server Express
+[x] 1.1  Install SQL Server Express
         https://www.microsoft.com/en-us/sql-server/sql-server-downloads
 
-[ ] 1.2  Install SQL Server Management Studio (SSMS)
+[x] 1.2  Install SQL Server Management Studio (SSMS)
         https://learn.microsoft.com/en-us/sql/ssms/download-sql-server-management-studio-ssms
 
-[ ] 1.3  Download AdventureWorksLT2019.bak
+[x] 1.3  Download AdventureWorksLT2019.bak
         https://github.com/Microsoft/sql-server-samples/releases/tag/adventureworks
 
-[ ] 1.4  Copy .bak to SQL Server backup folder:
+[x] 1.4  Copy .bak to SQL Server backup folder:
         C:\Program Files\Microsoft SQL Server\MSSQL15.SQLEXPRESS\MSSQL\Backup\
 
-[ ] 1.5  Restore AdventureWorksLT2019 in SSMS:
+[x] 1.5  Restore AdventureWorksLT2019 in SSMS:
         Right-click Databases → Restore Database → Device → browse to .bak
         OR run:
             RESTORE DATABASE AdventureWorksLT2019
@@ -31,11 +31,11 @@ PHASE 1 — ON-PREMISES SQL SERVER SETUP
                  MOVE 'AdventureWorksLT2019_Log'  TO '...\DATA\AdventureWorksLT2019.ldf',
                  REPLACE;
 
-[ ] 1.6  Enable SQL Server Authentication mode:
+[x] 1.6  Enable SQL Server Authentication mode:
         SSMS → right-click server → Properties → Security
         → set to "SQL Server and Windows Authentication mode" → OK
 
-[ ] 1.7  Restart SQL Server service:
+[x] 1.7  Restart SQL Server service:
         Open SQL Server Configuration Manager → SQL Server Services
         → right-click SQL Server (SQLEXPRESS) → Restart
 
@@ -49,35 +49,42 @@ PHASE 1 — ON-PREMISES SQL SERVER SETUP
 
 
 ────────────────────────────────────────────────────────────────────────────────
-PHASE 2 — AZURE RESOURCE PROVISIONING
+PHASE 2 — AZURE RESOURCE PROVISIONING                         ✅ CLI AUTOMATED
 ────────────────────────────────────────────────────────────────────────────────
 
+  ⚡ Run via CLI instead of Portal (recommended):
+        1. Install Azure CLI: https://learn.microsoft.com/en-us/cli/azure/install-azure-cli
+        2. az login
+        3. Edit variables at top of infra/provision_step1.sh (names, location, password)
+        4. bash infra/provision_step1.sh
+
+  The script handles all steps below automatically (2.1 → 2.6).
+  Tick boxes manually if you provisioned via Portal instead.
+
 [ ] 2.1  Create Resource Group (RG)
-        Azure Portal → Resource Groups → Create
-        Name: e.g. rg-data-engineering
+        Portal: Resource Groups → Create → Name: rg-data-engineering
+        CLI:    az group create --name rg-data-engineering --location eastus
 
 [ ] 2.2  Create Azure Data Factory
-        Portal → Create resource → Data Factory
-        Region: same as RG
+        Portal: Create resource → Data Factory, same region as RG
+        CLI:    handled by infra/provision_step1.sh
 
 [ ] 2.3  Create Storage Account (ADLS Gen2)
-        Portal → Create resource → Storage Account
-        Name: sadataengineeringproj
-        Enable: Hierarchical namespace (makes it ADLS Gen2)
-        After creation, create 3 containers:
-            bronze  |  silver  |  gold
+        Portal: Create resource → Storage Account → enable Hierarchical namespace
+                After creation add containers: bronze | silver | gold
+        CLI:    handled by infra/provision_step1.sh (creates all 4 containers incl. synapse)
 
 [ ] 2.4  Create Azure Databricks Workspace
-        Portal → Create resource → Azure Databricks
-        Pricing tier: Premium (required for Unity Catalog)
+        Portal: Create resource → Azure Databricks → Pricing tier: Premium
+        CLI:    handled by infra/provision_step1.sh
 
 [ ] 2.5  Create Azure Synapse Analytics Workspace
-        Portal → Create resource → Azure Synapse Analytics
-        Storage account: select sadataengineeringproj
-        File system name: synapse (or any meaningful name)
+        Portal: Create resource → Azure Synapse Analytics
+                Storage account: sadataengineeringproj, File system: synapse
+        CLI:    handled by infra/provision_step1.sh
 
 [ ] 2.6  Create Azure Key Vault
-        Portal → Create resource → Key Vault
+        Portal: Create resource → Key Vault
         Name: e.g. kv-dataengproj
         If RBAC error when creating secrets:
             RG → Access Control (IAM) → Add role assignment

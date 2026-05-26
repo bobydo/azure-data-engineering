@@ -217,5 +217,10 @@ __marimo__/
 # SQL Server backup files (too large for GitHub)
 *.bak
 
+# Local secrets — never commit
+.env
+infra/.env
+infra/secrets.sh
+
 # Streamlit
 .streamlit/secrets.toml
