@@ -16,12 +16,12 @@
 #   bash infra/keyvault-secrets_step2.sh [dev|uat|prod]   (default: dev)
 #
 # Secrets written:
-#   sql-username        ← SQL_USERNAME      (ADF → on-prem SQL Server)
-#   sql-password        ← SQL_PASSWORD      (ADF → on-prem SQL Server)
-#   sp-client-id        ← SP_CLIENT_ID      (Databricks → ADLS Gen2 OAuth2)
-#   sp-client-secret    ← SP_CLIENT_SECRET  (Databricks → ADLS Gen2 OAuth2)
-#   sp-tenant-id        ← SP_TENANT_ID      (Databricks → ADLS Gen2 OAuth2)
-#   databricks-token    ← DATABRICKS_TOKEN  (ADF → Databricks notebook activity)
+#   sql-username  ← SQL_USERNAME  (ADF → on-prem SQL Server)
+#   sql-password  ← SQL_PASSWORD  (ADF → on-prem SQL Server)
+#
+# Other secrets are handled by dedicated scripts (no manual copy needed):
+#   sp-client-id / sp-client-secret / sp-tenant-id → service-principal_step3.sh
+#   databricks-token                               → databricks-token_step4.sh
 # =============================================================================
 
 set -euo pipefail
@@ -41,12 +41,19 @@ source "$SCRIPT_DIR/config.${TARGET_ENV}.sh"
 echo "ℹ️  Environment : $TARGET_ENV"
 echo "ℹ️  Key Vault   : $KEY_VAULT_NAME"
 
-# 3. Load secrets
+# 3. Load secrets — secrets.sh is optional
+#    Priority: env var → secrets.sh → interactive prompt
 if [[ -f "$SCRIPT_DIR/secrets.sh" ]]; then
     source "$SCRIPT_DIR/secrets.sh"
     echo "ℹ️  Loaded secrets from infra/secrets.sh"
-else
-    echo "❌ infra/secrets.sh not found — create it from secrets.sh.example" && exit 1
+fi
+
+if [[ -z "${SQL_USERNAME:-}" ]]; then
+    read -p "Enter SQL_USERNAME: " SQL_USERNAME
+fi
+if [[ -z "${SQL_PASSWORD:-}" ]]; then
+    read -s -p "Enter SQL_PASSWORD: " SQL_PASSWORD
+    echo ""
 fi
 
 echo ""
@@ -109,23 +116,8 @@ echo "── SQL Server Credentials ──"
 set_secret "sql-username" "${SQL_USERNAME:-}"      "fill SQL_USERNAME in secrets.sh"
 set_secret "sql-password" "${SQL_PASSWORD:-}"      "fill SQL_PASSWORD in secrets.sh"
 
-# =============================================================================
-# Service Principal credentials (Databricks → ADLS Gen2 via OAuth2)
-# Created in Phase 4 — fill SP_* vars in secrets.sh after az ad sp create
-# =============================================================================
-echo ""
-echo "── Service Principal (OAuth2 for Databricks → ADLS) ──"
-set_secret "sp-client-id"     "${SP_CLIENT_ID:-}"     "fill SP_CLIENT_ID after Phase 4"
-set_secret "sp-client-secret" "${SP_CLIENT_SECRET:-}" "fill SP_CLIENT_SECRET after Phase 4"
-set_secret "sp-tenant-id"     "${SP_TENANT_ID:-}"     "fill SP_TENANT_ID after Phase 4"
-
-# =============================================================================
-# Databricks personal access token (ADF → Databricks notebook activity)
-# Created in Phase 7 — fill DATABRICKS_TOKEN in secrets.sh after workspace setup
-# =============================================================================
-echo ""
-echo "── Databricks Token ──"
-set_secret "databricks-token" "${DATABRICKS_TOKEN:-}" "fill DATABRICKS_TOKEN after Phase 7"
+# SP secrets → handled by service-principal_step3.sh (writes directly to KV)
+# Databricks token → handled by databricks-token_step4.sh (after Phase 7)
 
 # =============================================================================
 # Done
@@ -137,9 +129,5 @@ echo "════════════════════════�
 echo ""
 echo "Verify in Portal: Key Vault '$KEY_VAULT_NAME' → Secrets"
 echo ""
-echo "Pending secrets (re-run this script after filling secrets.sh):"
-echo "  Phase 4 → SP_CLIENT_ID, SP_CLIENT_SECRET, SP_TENANT_ID"
-echo "  Phase 7 → DATABRICKS_TOKEN"
-echo ""
 echo "Next: Phase 4 — Create Service Principal"
-echo "  bash infra/service-principal.sh $TARGET_ENV"
+echo "  bash infra/service-principal_step3.sh $TARGET_ENV"

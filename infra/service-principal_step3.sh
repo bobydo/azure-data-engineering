@@ -16,10 +16,7 @@
 #   bash infra/service-principal_step3.sh [dev|uat|prod]   (default: dev)
 #   bash infra/service-principal_step3.sh dev --reset-secret  # rotate client secret
 #
-# After this script:
-#   1. Copy the printed SP_CLIENT_ID / SP_CLIENT_SECRET / SP_TENANT_ID
-#      into infra/secrets.sh
-#   2. Re-run: bash infra/keyvault-secrets_step2.sh dev
+# After this script: nothing — SP credentials are written directly to Key Vault.
 # =============================================================================
 
 set -euo pipefail
@@ -123,23 +120,63 @@ else
 fi
 
 # =============================================================================
-# Done — print values to paste into secrets.sh
+# 4.3 — Write SP secrets directly to Key Vault (CI/CD approach — no copy-paste)
+# Polls for KV access first (RBAC propagation can take ~2 min after assignment)
+# =============================================================================
+echo ""
+echo "── 4.3 Writing SP secrets to Key Vault: $KEY_VAULT_NAME ──"
+
+MAX_ATTEMPTS=20
+INTERVAL=15
+ACCESS_OK=false
+for i in $(seq 1 $MAX_ATTEMPTS); do
+    if az keyvault secret list --vault-name "$KEY_VAULT_NAME" --output none 2>/dev/null; then
+        ACCESS_OK=true
+        break
+    fi
+    echo "   ⏳ Waiting for KV access... (attempt $i/${MAX_ATTEMPTS}, ${INTERVAL}s interval)"
+    sleep $INTERVAL
+done
+
+if [[ "$ACCESS_OK" != "true" ]]; then
+    echo "   ❌ KV access timed out — run keyvault-secrets_step2.sh manually after fixing access"
+else
+    for SECRET_NAME in sp-client-id sp-client-secret sp-tenant-id; do
+        case "$SECRET_NAME" in
+            sp-client-id)     VALUE="$SP_CLIENT_ID"     ;;
+            sp-client-secret) VALUE="$SP_CLIENT_SECRET" ;;
+            sp-tenant-id)     VALUE="$SP_TENANT_ID"     ;;
+        esac
+        if [[ -n "$VALUE" && "$VALUE" != "<existing"* ]]; then
+            az keyvault secret set \
+                --vault-name "$KEY_VAULT_NAME" \
+                --name       "$SECRET_NAME" \
+                --value      "$VALUE" \
+                --output     none
+            echo "   ✅ $SECRET_NAME — set"
+        else
+            echo "   ⏭️  $SECRET_NAME — skipped (existing SP, secret unknown — use --reset-secret)"
+        fi
+    done
+fi
+
+# =============================================================================
+# Done
 # =============================================================================
 echo ""
 echo "══════════════════════════════════════════════════════"
 echo " ✅ Phase 4 Complete"
 echo "══════════════════════════════════════════════════════"
 echo ""
-echo "Copy these into infra/secrets.sh:"
+echo "SP credentials written directly to Key Vault — no manual copy needed."
+echo "⚠️  For local secrets.sh (optional — used by keyvault-secrets_step2.sh):"
 echo "──────────────────────────────────────────────────────"
 echo "SP_CLIENT_ID=\"$SP_CLIENT_ID\""
 echo "SP_CLIENT_SECRET=\"$SP_CLIENT_SECRET\""
 echo "SP_TENANT_ID=\"$SP_TENANT_ID\""
 echo "──────────────────────────────────────────────────────"
 echo ""
-echo "⚠️  SP_CLIENT_SECRET is shown ONCE — save it now."
-echo "   To rotate later: bash infra/service-principal_step3.sh $TARGET_ENV --reset-secret"
+echo "To rotate secret later: bash infra/service-principal_step3.sh $TARGET_ENV --reset-secret"
 echo ""
-echo "Next steps:"
-echo "  1. Paste the values above into infra/secrets.sh"
-echo "  2. bash infra/keyvault-secrets_step2.sh $TARGET_ENV   # push SP secrets to Key Vault"
+echo "Next: Phase 5 — ADF Self-hosted Integration Runtime"
+echo "  ADF Studio → Manage → Integration Runtimes → New → Self-hosted → install on local machine"

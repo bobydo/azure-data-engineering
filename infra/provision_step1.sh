@@ -81,15 +81,18 @@ else
     [[ -n "$FROM_STEP" ]] && echo "ℹ️  Resuming from step: $FROM_STEP"
 fi
 
-# 4. Load secrets (local dev only — gitignored)
-#    In CI/CD these arrive as GitHub Secrets env vars instead
+# 4. Load secrets — secrets.sh is optional
+#    Priority: env var → secrets.sh → interactive prompt
+#    CI/CD: set SYNAPSE_SQL_PASSWORD as a GitHub Secret env var (no secrets.sh needed)
 if [[ -f "$SCRIPT_DIR/secrets.sh" ]]; then
     source "$SCRIPT_DIR/secrets.sh"
     echo "ℹ️  Loaded secrets from infra/secrets.sh"
 fi
 
-# Guard — fail fast if required secrets are missing
-: "${SYNAPSE_SQL_PASSWORD:?❌ Set SYNAPSE_SQL_PASSWORD in infra/secrets.sh or as env var}"
+if [[ -z "${SYNAPSE_SQL_PASSWORD:-}" ]]; then
+    read -s -p "Enter SYNAPSE_SQL_PASSWORD: " SYNAPSE_SQL_PASSWORD
+    echo ""
+fi
 
 # =============================================================================
 # Helpers
@@ -116,8 +119,13 @@ echo " Checking Azure CLI login..."
 echo "══════════════════════════════════════════════════════"
 az account show --query "{Subscription:name, ID:id}" -o table
 echo ""
-read -p "Is this the correct subscription? (y/n): " CONFIRM
-[[ "$CONFIRM" != "y" ]] && echo "Aborted." && exit 1
+# Skip confirmation in CI/CD: set CI=true or pass --yes as any argument
+if [[ "${CI:-}" == "true" || " $* " == *" --yes "* ]]; then
+    echo "ℹ️  CI mode — subscription confirmed automatically"
+else
+    read -p "Is this the correct subscription? (y/n): " CONFIRM
+    [[ "$CONFIRM" != "y" ]] && echo "Aborted." && exit 1
+fi
 
 # =============================================================================
 # 0.1 — Register required resource providers (idempotent — safe to re-run)
@@ -296,11 +304,12 @@ if step_enabled "2.6"; then
     fi
 
     # Assign Key Vault Administrator role if not already assigned.
-    # ⚠️  az role assignment create fails for personal Microsoft accounts (outlook.com)
-    #     with MissingSubscription — use Portal as fallback:
-    #     Portal → Key Vault → Access Control (IAM) → Add → Key Vault Administrator → (your user)
+    # ⚠️  az role assignment commands fail for personal Microsoft accounts (outlook.com)
+    #     with MissingSubscription. The entire block runs under set +e so failures
+    #     never abort the script — a Portal fallback message is shown instead.
     echo "   Checking Key Vault Administrator role..."
     set +e
+
     TOKEN_PAYLOAD=$(az account get-access-token \
         --resource "https://management.azure.com/" \
         --query    accessToken -o tsv 2>/dev/null | cut -d'.' -f2)
@@ -308,41 +317,41 @@ if step_enabled "2.6"; then
         awk '{n=length($0)%4; if(n==2)print $0"=="; else if(n==3)print $0"="; else print $0}' | \
         base64 -d 2>/dev/null | \
         grep -o '"oid":"[^"]*"' | cut -d'"' -f4 2>/dev/null)
-    set -e
 
     if [[ -z "${CURRENT_USER_OID:-}" ]]; then
-        echo "   ⚠️  Could not determine OID — assign the role manually then re-run:"
-        echo "      az role assignment create \\"
-        echo "        --assignee-object-id <your-oid> --assignee-principal-type User \\"
-        echo "        --role 'Key Vault Administrator' \\"
-        echo "        --scope \$(az keyvault show --name $KEY_VAULT_NAME --resource-group $RESOURCE_GROUP --query id -o tsv)"
+        echo "   ⚠️  Could not determine OID (MSA account limitation)"
     else
         KV_RESOURCE_ID=$(az keyvault show \
             --name           "$KEY_VAULT_NAME" \
             --resource-group "$RESOURCE_GROUP" \
-            --query id -o tsv 2>/dev/null || true)
+            --query id -o tsv 2>/dev/null)
 
-        set +e
         ROLE_EXISTS=$(az role assignment list \
             --assignee-object-id "$CURRENT_USER_OID" \
             --role               "Key Vault Administrator" \
             --scope              "$KV_RESOURCE_ID" \
             --query              "length(@)" -o tsv 2>/dev/null)
-        ROLE_EXISTS="${ROLE_EXISTS:-0}"
-        set -e
 
-        if [[ "$ROLE_EXISTS" -gt 0 ]]; then
+        if [[ "${ROLE_EXISTS:-0}" -gt 0 ]]; then
             echo "   ⏭️  Role already assigned — skipping"
         else
-            az role assignment create \
+            ASSIGN_RESULT=$(az role assignment create \
                 --assignee-object-id      "$CURRENT_USER_OID" \
                 --assignee-principal-type User \
                 --role                    "Key Vault Administrator" \
                 --scope                   "$KV_RESOURCE_ID" \
-                --output                  none
-            echo "   ✅ Key Vault Administrator role assigned"
+                --output                  json 2>&1)
+            if echo "$ASSIGN_RESULT" | grep -q "roleDefinitionId"; then
+                echo "   ✅ Key Vault Administrator role assigned"
+            else
+                echo "   ⚠️  CLI role assignment failed — assign via Portal if not already done:"
+                echo "      Portal → Key Vault '$KEY_VAULT_NAME' → Access Control (IAM)"
+                echo "              → Add role assignment → Key Vault Administrator → (your user)"
+            fi
         fi
     fi
+
+    set -e
 fi
 
 # =============================================================================
