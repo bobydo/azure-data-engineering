@@ -1,0 +1,525 @@
+=============================================================================
+ Azure E2E Data Engineering — Run Process Guide (Phase 5 → Phase 10)
+ Project   : AdventureWorksLT2019 → Medallion → Power BI
+ Env       : dev  (repeat per env: uat / prod)
+ Prereqs   : Phases 1–4 complete (all Azure resources provisioned, secrets in KV)
+=============================================================================
+
+──────────────────────────────────────────────────────────────────────────────
+PHASE 5 — ADF Self-hosted Integration Runtime (Manual — UI only)
+──────────────────────────────────────────────────────────────────────────────
+Purpose : Bridge between your local SQL Server and ADF in the cloud.
+          Without this, ADF cannot reach on-premises data sources.
+
+Steps:
+  1. Open ADF Studio → https://adf.azure.com
+     Select factory: adf-data-260524-dev
+
+  2. Left menu → Manage → Integration Runtimes → + New
+
+  3. Select: Azure, Self-Hosted → Continue
+     Select: Self-Hosted → Continue
+     The Self-hosted IR works outbound only:
+     Your machine ──── outbound HTTPS (port 443) ────► ADF in Azure
+
+  4. Name        : ir-selfhosted-dev
+     Description : Self-hosted IR for on-prem SQL Server (AdventureWorksLT2019)
+     → Click Create
+
+  5. On the next screen, copy Authentication Key 1 (keep this — needed in step 7)
+
+  6. Click "Download and install" → download the MSI installer
+     Run the installer on YOUR LOCAL WINDOWS MACHINE
+     (same machine where SQL Server is installed)
+
+  7. During setup, paste Authentication Key 1 when prompted → Register
+
+  8. Back in ADF Studio → Integration Runtimes
+     Confirm ir-selfhosted-dev shows status: Running ✅
+
+Notes:
+  - IR must remain running whenever ADF pipelines execute
+  - If your machine restarts, the IR service auto-starts (installed as Windows service)
+  - To verify: Windows Services → "Integration Runtime Service" → Running
+
+──────────────────────────────────────────────────────────────────────────────
+PHASE 6 — ADF Linked Services + Datasets + Pipeline (ADF Studio UI)
+──────────────────────────────────────────────────────────────────────────────
+Purpose : Configure ADF to connect to SQL Server and ADLS, then build the
+          ingestion pipeline that copies all SalesLT tables to bronze layer.
+
+─── 6.1 Linked Service: SQL Server (On-Premises) ───────────────────────────
+
+  1. ADF Studio → Manage → Linked Services → + New
+  2. Search: SQL Server → Continue
+  3. Fill in:
+       Name                  : ls-sqlserver-onprem
+       Integration runtime   : ir-selfhosted-dev
+       Server name           : localhost\SQLEXPRESS   (or your instance name)
+       Database name         : AdventureWorksLT2019
+       Authentication type   : SQL Authentication
+       User name             : [from Key Vault secret: sql-username]
+       Password              : [from Key Vault secret: sql-password]
+  4. Test connection → should show: Connection successful ✅
+  5. Create
+
+─── 6.2 Linked Service: ADLS Gen2 ──────────────────────────────────────────
+
+  1. ADF Studio → Manage → Linked Services → + New
+  2. Search: Azure Data Lake Storage Gen2 → Continue
+  3. Fill in:
+       Name                       : ls-adls-gen2
+       Authentication method      : Service Principal
+       Azure subscription         : Azure subscription 1
+       Storage account name       : sadataeng260524dev
+       Tenant                     : [from Key Vault secret: sp-tenant-id]
+       Service principal ID       : [from Key Vault secret: sp-client-id]
+       Service principal key      : [from Key Vault secret: sp-client-secret]
+  4. Test connection → Connection successful ✅
+  5. Create
+
+─── 6.3 Linked Service: Azure Databricks ────────────────────────────────────
+
+  1. ADF Studio → Manage → Linked Services → + New
+  2. Search: Azure Databricks → Continue
+  3. Fill in:
+       Name                  : ls-databricks
+       Azure subscription    : Azure subscription 1
+       Databricks workspace  : dbw-data-engineering-dev
+       Select cluster        : New job cluster (auto-terminates after job)
+       Access token          : [from Key Vault secret: databricks-token]
+       Cluster version       : Latest LTS (e.g. 13.3 LTS)
+       Cluster node type     : Standard_DS3_v2
+       Workers               : 1 (min) / 2 (max)  ← keep low for dev cost
+  4. Test connection → Connection successful ✅
+  5. Create
+
+─── 6.4 Dataset: SQL Server Source (Dynamic) ────────────────────────────────
+
+  1. ADF Studio → Author → Datasets → + New dataset
+  2. Search: SQL Server → Continue
+  3. Fill in:
+       Name            : ds_sqlserver_source
+       Linked service  : ls-sqlserver-onprem
+       Table name      : [leave blank — will be dynamic via parameter]
+  4. Parameters tab → + New:
+       Name: tableName   Type: String
+  5. Connection tab → Table:
+       Click "Edit" → Schema: @dataset().schemaName  Table: @dataset().tableName
+       Add second parameter: schemaName  Type: String
+  6. Publish All
+
+─── 6.5 Dataset: ADLS Bronze Sink (Parquet) ─────────────────────────────────
+
+  1. ADF Studio → Author → Datasets → + New dataset
+  2. Search: Azure Data Lake Storage Gen2 → Continue
+  3. Format: Parquet → Continue
+  4. Fill in:
+       Name            : ds_adls_bronze_parquet
+       Linked service  : ls-adls-gen2
+       File path       : bronze / @{dataset().schemaName} / @{dataset().tableName}
+                         / @{dataset().tableName}.parquet
+  5. Parameters tab → + New:
+       schemaName  Type: String
+       tableName   Type: String
+  6. Publish All
+
+─── 6.6 Pipeline: pl-ingestion-sqlserver-to-bronze ──────────────────────────
+
+  1. ADF Studio → Author → Pipelines → + New pipeline
+     Name: pl-ingestion-sqlserver-to-bronze
+
+  2. Add activity: Lookup
+       Name         : lkp-get-all-tables
+       Source       : ls-sqlserver-onprem (inline query)
+       Query        :
+         SELECT TABLE_SCHEMA, TABLE_NAME
+         FROM INFORMATION_SCHEMA.TABLES
+         WHERE TABLE_SCHEMA = 'SalesLT'
+           AND TABLE_TYPE  = 'BASE TABLE'
+       First row only: OFF
+
+  3. Add activity: ForEach (connect from Lookup success)
+       Name         : foreach-tables
+       Items        : @activity('lkp-get-all-tables').output.value
+       Batch count  : 4  (parallel copies — safe for dev)
+
+  4. Inside ForEach → Add activity: Copy data
+       Name         : copy-table-to-bronze
+       Source:
+         Dataset    : ds_sqlserver_source
+         schemaName : @item().TABLE_SCHEMA
+         tableName  : @item().TABLE_NAME
+         Query      : SELECT * FROM [@{item().TABLE_SCHEMA}].[@{item().TABLE_NAME}]
+       Sink:
+         Dataset    : ds_adls_bronze_parquet
+         schemaName : @item().TABLE_SCHEMA
+         tableName  : @item().TABLE_NAME
+
+  5. Publish All
+
+  6. Debug run → Monitor tab → should show all SalesLT tables copied to bronze ✅
+     Verify in Portal: sadataeng260524dev → bronze → SalesLT → [TableName]/
+
+──────────────────────────────────────────────────────────────────────────────
+PHASE 7 — Databricks Cluster + Notebooks
+──────────────────────────────────────────────────────────────────────────────
+Purpose : Configure Databricks compute and upload transformation notebooks.
+          storagemount.ipynb mounts ADLS containers so notebooks can read/write
+          bronze → silver → gold using Delta Lake format.
+
+─── 7.1 Create Cluster ──────────────────────────────────────────────────────
+
+  1. Open Databricks workspace:
+     Portal → dbw-data-engineering-dev → Launch Workspace
+
+  2. Left menu → Compute → Create compute
+  3. Fill in:
+       Cluster name    : cluster-dev
+       Policy          : Unrestricted
+       Single node     : ✅ (checked — saves cost for dev)
+       Databricks runtime : 13.3 LTS (Scala 2.12, Spark 3.4)
+       Node type       : Standard_DS3_v2
+       Terminate after : 30 minutes of inactivity
+  4. Create compute → wait for Running status ✅
+
+─── 7.2 Upload Notebooks ────────────────────────────────────────────────────
+
+  1. Databricks → Workspace → your username folder → Create folder: notebooks
+
+  2. Upload or create 3 notebooks:
+
+     ┌─────────────────────────────────────────────────────────────────────┐
+     │ Notebook 1: storagemount                                            │
+     │ Purpose   : Mount ADLS Gen2 containers using Service Principal OAuth│
+     └─────────────────────────────────────────────────────────────────────┘
+
+     # Cell 1 — config (read SP credentials from Databricks Secret Scope)
+     configs = {
+       "fs.azure.account.auth.type"                          : "OAuth",
+       "fs.azure.account.oauth.provider.type"               : "org.apache.hadoop.fs.azurebfs.oauth2.ClientCredsTokenProvider",
+       "fs.azure.account.oauth2.client.id"                  : dbutils.secrets.get("kv-scope", "sp-client-id"),
+       "fs.azure.account.oauth2.client.secret"              : dbutils.secrets.get("kv-scope", "sp-client-secret"),
+       "fs.azure.account.oauth2.client.endpoint"            : f"https://login.microsoftonline.com/{dbutils.secrets.get('kv-scope','sp-tenant-id')}/oauth2/token"
+     }
+
+     # Cell 2 — mount all 3 containers
+     STORAGE_ACCOUNT = "sadataeng260524dev"
+
+     for container in ["bronze", "silver", "gold"]:
+         mount_point = f"/mnt/{container}"
+         if not any(mount.mountPoint == mount_point for mount in dbutils.fs.mounts()):
+             dbutils.fs.mount(
+                 source       = f"abfss://{container}@{STORAGE_ACCOUNT}.dfs.core.windows.net/",
+                 mount_point  = mount_point,
+                 extra_configs = configs
+             )
+             print(f"✅ Mounted: {mount_point}")
+         else:
+             print(f"⏭️  Already mounted: {mount_point}")
+
+     # Cell 3 — verify
+     display(dbutils.fs.mounts())
+
+     ┌─────────────────────────────────────────────────────────────────────┐
+     │ Notebook 2: bronze_to_silver                                        │
+     │ Purpose   : Convert datetime columns → date, write Delta to silver  │
+     └─────────────────────────────────────────────────────────────────────┘
+
+     from pyspark.sql import functions as F
+     from pyspark.sql.types import DateType
+     import os
+
+     BRONZE_PATH = "/mnt/bronze/SalesLT"
+     SILVER_PATH = "/mnt/silver/SalesLT"
+
+     tables = [t.name for t in dbutils.fs.ls(BRONZE_PATH)]
+
+     for table in tables:
+         df = spark.read.parquet(f"{BRONZE_PATH}/{table}/{table}.parquet")
+
+         # Convert all TimestampType / DateType columns to DateType
+         for col_name, col_type in df.dtypes:
+             if col_type in ("timestamp", "date"):
+                 df = df.withColumn(col_name, F.col(col_name).cast(DateType()))
+
+         df.write.format("delta").mode("overwrite").save(f"{SILVER_PATH}/{table}")
+         print(f"✅ {table} → silver")
+
+     ┌─────────────────────────────────────────────────────────────────────┐
+     │ Notebook 3: silver_to_gold                                          │
+     │ Purpose   : Rename columns PascalCase → UPPER_SNAKE_CASE, write     │
+     │             Delta to gold                                            │
+     └─────────────────────────────────────────────────────────────────────┘
+
+     import re
+
+     SILVER_PATH = "/mnt/silver/SalesLT"
+     GOLD_PATH   = "/mnt/gold/SalesLT"
+
+     def to_upper_snake(name):
+         s = re.sub(r'([A-Z])', r'_\1', name).lstrip('_')
+         return s.upper()
+
+     tables = [t.name for t in dbutils.fs.ls(SILVER_PATH)]
+
+     for table in tables:
+         df = spark.read.format("delta").load(f"{SILVER_PATH}/{table}")
+
+         renamed = {c: to_upper_snake(c) for c in df.columns}
+         for old, new in renamed.items():
+             df = df.withColumnRenamed(old, new)
+
+         df.write.format("delta").mode("overwrite").save(f"{GOLD_PATH}/{table}")
+         print(f"✅ {table} → gold")
+
+─── 7.3 Set Up Databricks Secret Scope ──────────────────────────────────────
+
+  Purpose: Let Databricks notebooks read secrets from Key Vault without
+           hardcoding credentials.
+
+  1. In browser, navigate to:
+     https://<your-databricks-url>#secrets/createScope
+     (e.g. https://adb-xxxx.azuredatabricks.net#secrets/createScope)
+
+  2. Fill in:
+       Scope name        : kv-scope
+       Manage principal  : All users
+       DNS name          : [Key Vault URI — Portal → kv-dataengproj-dev → Vault URI]
+       Resource ID       : [Key Vault Resource ID — Portal → kv-dataengproj-dev → Properties → Resource ID]
+
+  3. Create → "Secret scope created successfully" ✅
+
+─── 7.4 Run storagemount Notebook ───────────────────────────────────────────
+
+  1. Databricks → Workspace → notebooks → storagemount
+  2. Attach to cluster: cluster-dev
+  3. Run All → verify all 3 mounts show ✅
+  4. Cell 3 output should list /mnt/bronze, /mnt/silver, /mnt/gold
+
+──────────────────────────────────────────────────────────────────────────────
+PHASE 8 — Databricks Token → Key Vault (Automated)
+──────────────────────────────────────────────────────────────────────────────
+Purpose : Generate a Databricks PAT (Personal Access Token) automatically
+          and store it in Key Vault so ADF can authenticate to Databricks.
+          No UI interaction needed.
+
+  Run:
+    bash infra/databricks-token_step4.sh dev
+
+  What it does:
+    1. Gets Databricks workspace URL from Azure
+    2. Acquires Azure AD token for Databricks resource
+    3. Calls Databricks REST API to generate a PAT (90-day lifetime)
+    4. Writes databricks-token secret directly to Key Vault
+
+  Verify:
+    Portal → kv-dataengproj-dev → Secrets → databricks-token → Enabled ✅
+
+  To rotate (after 90 days): re-run the same script.
+
+──────────────────────────────────────────────────────────────────────────────
+PHASE 9 — Add Databricks Activities to ADF Pipeline
+──────────────────────────────────────────────────────────────────────────────
+Purpose : Extend the ADF pipeline to trigger Databricks notebooks after
+          the ForEach copy completes: bronze → silver → gold.
+
+  1. ADF Studio → Author → pl-ingestion-sqlserver-to-bronze
+
+  2. Add activity: Databricks Notebook (after ForEach success)
+       Name              : nb-bronze-to-silver
+       Linked service    : ls-databricks
+       Notebook path     : /Users/<your-email>/notebooks/bronze_to_silver
+       Base parameters   : (none needed — paths are hardcoded in notebook)
+
+  3. Add activity: Databricks Notebook (after nb-bronze-to-silver success)
+       Name              : nb-silver-to-gold
+       Linked service    : ls-databricks
+       Notebook path     : /Users/<your-email>/notebooks/silver_to_gold
+
+  4. Publish All → Debug run
+     Monitor tab → all activities green ✅
+     Verify:
+       sadataeng260524dev → silver → SalesLT → [tables in Delta format]
+       sadataeng260524dev → gold   → SalesLT → [tables in Delta format]
+
+──────────────────────────────────────────────────────────────────────────────
+PHASE 10 — Synapse Serverless SQL Views
+──────────────────────────────────────────────────────────────────────────────
+Purpose : Expose the Gold Delta Lake files as SQL views in Synapse so
+          Power BI can query them with standard SQL without a dedicated pool.
+
+─── 10.1 Create Serverless Database ─────────────────────────────────────────
+
+  1. Portal → synapse-dataeng-dev → Open Synapse Studio
+
+  2. Left menu → Develop → + SQL script
+
+  3. Run:
+       IF NOT EXISTS (SELECT * FROM sys.databases WHERE name = 'gold_db')
+           CREATE DATABASE gold_db;
+
+─── 10.2 Grant Synapse Access to ADLS ───────────────────────────────────────
+
+  Portal → sadataeng260524dev → Access Control (IAM) → Add role assignment
+    Role     : Storage Blob Data Reader
+    Assign to: Managed Identity → synapse-dataeng-dev
+
+─── 10.3 Create Views for Each Gold Table ───────────────────────────────────
+
+  In Synapse Studio → Develop → + SQL script → connect to gold_db
+
+  Template for each table (repeat per SalesLT table):
+
+    CREATE OR ALTER VIEW SalesLT_Customer AS
+    SELECT *
+    FROM OPENROWSET(
+        BULK 'https://sadataeng260524dev.dfs.core.windows.net/gold/SalesLT/Customer/',
+        FORMAT = 'DELTA'
+    ) AS [result];
+
+  Tables to create views for:
+    - Customer
+    - Product
+    - ProductCategory
+    - SalesOrderHeader
+    - SalesOrderDetail
+    - Address
+    - CustomerAddress
+
+─── 10.4 Create Stored Procedure (Dynamic — creates all views at once) ──────
+
+    CREATE OR ALTER PROCEDURE sp_create_gold_views
+    AS
+    BEGIN
+        DECLARE @sql NVARCHAR(MAX)
+        DECLARE @tables TABLE (tbl NVARCHAR(100))
+
+        INSERT INTO @tables VALUES
+            ('Customer'), ('Product'), ('ProductCategory'),
+            ('SalesOrderHeader'), ('SalesOrderDetail'),
+            ('Address'), ('CustomerAddress')
+
+        DECLARE @tbl NVARCHAR(100)
+        DECLARE cur CURSOR FOR SELECT tbl FROM @tables
+        OPEN cur
+        FETCH NEXT FROM cur INTO @tbl
+        WHILE @@FETCH_STATUS = 0
+        BEGIN
+            SET @sql = N'
+            CREATE OR ALTER VIEW SalesLT_' + @tbl + N' AS
+            SELECT * FROM OPENROWSET(
+                BULK ''https://sadataeng260524dev.dfs.core.windows.net/gold/SalesLT/' + @tbl + N'/'',
+                FORMAT = ''DELTA''
+            ) AS [result]'
+            EXEC sp_executesql @sql
+            FETCH NEXT FROM cur INTO @tbl
+        END
+        CLOSE cur
+        DEALLOCATE cur
+    END
+
+    -- Run it:
+    EXEC sp_create_gold_views
+
+  Verify:
+    SELECT TOP 10 * FROM SalesLT_Customer;  -- should return rows ✅
+
+──────────────────────────────────────────────────────────────────────────────
+PHASE 11 — Power BI Dashboard
+──────────────────────────────────────────────────────────────────────────────
+Purpose : Connect Power BI Desktop to Synapse serverless SQL endpoint and
+          build KPI visualizations for business stakeholders.
+
+─── 11.1 Get Synapse Serverless Endpoint ────────────────────────────────────
+
+  Portal → synapse-dataeng-dev → Overview
+  Copy: Serverless SQL endpoint
+  e.g.: synapse-dataeng-dev-ondemand.sql.azuresynapse.net
+
+─── 11.2 Connect Power BI Desktop ───────────────────────────────────────────
+
+  1. Open Power BI Desktop (Windows only)
+  2. Home → Get data → Azure → Azure Synapse Analytics SQL
+  3. Server   : synapse-dataeng-dev-ondemand.sql.azuresynapse.net
+     Database : gold_db
+     Mode     : Import
+  4. Sign in with your Azure account (same as portal login)
+  5. Select tables: SalesLT_Customer, SalesLT_SalesOrderHeader,
+                    SalesLT_SalesOrderDetail, SalesLT_Product,
+                    SalesLT_ProductCategory
+  6. Load
+
+─── 11.3 Gender Column (Derived) ────────────────────────────────────────────
+
+  The Customer table has a TITLE column (Mr./Ms./Mrs./Miss/Dr.).
+  Derive gender from it:
+
+  Power BI → Transform data → Add column → Custom column:
+    Column name: Gender
+    Formula:
+      if [TITLE] = "Mr." or [TITLE] = "Dr." then "Male"
+      else if [TITLE] = "Ms." or [TITLE] = "Mrs." or [TITLE] = "Miss" then "Female"
+      else "Unknown"
+
+─── 11.4 Build Dashboard Visuals ────────────────────────────────────────────
+
+  Visual 1 — Card: Total Products Sold
+    Value: COUNT(SalesLT_SalesOrderDetail[ORDER_QTY])
+
+  Visual 2 — Card: Total Revenue
+    Value: SUM(SalesLT_SalesOrderDetail[LINE_TOTAL])
+    Format: Currency
+
+  Visual 3 — Donut Chart: Gender Split
+    Legend : SalesLT_Customer[Gender]
+    Values : COUNT(SalesLT_Customer[CUSTOMER_ID])
+
+  Visual 4 — Bar Chart: Revenue by Product Category
+    Axis  : SalesLT_ProductCategory[NAME]
+    Values: SUM(SalesLT_SalesOrderDetail[LINE_TOTAL])
+
+  Slicers:
+    - SalesLT_SalesOrderHeader[ORDER_DATE]     (date range slicer)
+    - SalesLT_ProductCategory[NAME]            (product category)
+    - SalesLT_Customer[Gender]                 (gender)
+
+─── 11.5 Schedule Refresh via ADF Trigger ───────────────────────────────────
+
+  1. ADF Studio → Author → pl-ingestion-sqlserver-to-bronze
+  2. Add trigger → New/Edit
+       Name       : trigger-daily
+       Type       : Schedule
+       Start date : today
+       Recurrence : Every 1 Day at 06:00 UTC
+  3. Publish All → trigger activates ✅
+
+  Power BI → Dataset settings → Scheduled refresh:
+       Frequency  : Daily
+       Time       : 07:00 (1hr after ADF completes)
+
+=============================================================================
+ QUICK REFERENCE — Phase Order
+=============================================================================
+
+  Phase 5  │ Install Self-hosted IR on local machine       │ Manual (UI)
+  Phase 6  │ ADF Linked Services + Datasets + Pipeline     │ ADF Studio
+  Phase 7  │ Databricks cluster + notebooks + secret scope │ Databricks UI
+  Phase 8  │ Databricks PAT → Key Vault                   │ bash script
+  Phase 9  │ Add Databricks activities to ADF pipeline     │ ADF Studio
+  Phase 10 │ Synapse serverless SQL views                  │ Synapse Studio
+  Phase 11 │ Power BI dashboard + scheduled refresh        │ Power BI Desktop
+
+=============================================================================
+ VERIFICATION — Run after Phase 11 complete
+=============================================================================
+
+  bash infra/check-resources_step5.sh dev
+
+  Then do an end-to-end test:
+    1. Insert a new row in SQL Server (e.g. SalesLT.Product)
+    2. Trigger ADF pipeline manually
+    3. Verify new row appears in:
+         bronze → silver → gold → Synapse view → Power BI (after refresh)
+
+=============================================================================

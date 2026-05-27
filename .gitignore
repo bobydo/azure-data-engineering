@@ -222,5 +222,8 @@ __marimo__/
 infra/.env
 infra/secrets.sh
 
+# Integration Runtime installer — large binary, no need to track
+docs/IR_*.exe
+
 # Streamlit
 .streamlit/secrets.toml

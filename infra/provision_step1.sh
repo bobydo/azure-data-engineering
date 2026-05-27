@@ -139,7 +139,9 @@ if step_enabled "0.1"; then
         Microsoft.Databricks \
         Microsoft.Synapse \
         Microsoft.Sql \
-        Microsoft.KeyVault; do
+        Microsoft.KeyVault \
+        microsoft.insights \
+        microsoft.alertsmanagement; do
         STATE=$(az provider show --namespace "$NS" --query "registrationState" -o tsv 2>/dev/null)
         if [[ "$STATE" == "Registered" ]]; then
             echo "   ⏭️  $NS — already registered"

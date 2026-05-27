@@ -166,13 +166,111 @@ Azure Data Factory and Storage Account names must be **globally unique** across 
 1. **Schedule Pipelines**: Use ADF to schedule the data pipelines to run daily at a specified time.
 2. **Monitor Pipeline Runs**: Use the monitoring tools in ADF and Synapse to ensure successful pipeline execution.
 
+#### 5a: Register Monitoring Resource Providers
+
+`microsoft.insights` and `microsoft.alertsmanagement` are required for Azure Monitor alerts. Both are registered automatically by [`infra/provision_step1.sh`](infra/provision_step1.sh) (step 0.1) alongside the core service providers.
+
+If you skipped provisioning or ran an older version of the script, register them manually:
+
+```bash
+az provider register --namespace microsoft.insights --wait
+az provider register --namespace microsoft.alertsmanagement --wait
+```
+
+Or via Portal: **Subscriptions** → your subscription → **Settings** → **Resource providers** → search `insights` → **Register**.
+![1779831489877](image/README/1779831489877.png)
+
+#### 5b: Set Up ADF Pipeline Failure Alert
+
+ADF has native alerting at no extra cost (no Log Analytics workspace needed).
+
+1. **ADF Studio** → **Monitor** → **Alerts & metrics** → **New alert rule**
+2. Fill in the form:
+
+   | Field | Value |
+   |---|---|
+   | Alert rule name | `ADF Pipeline Failures` |
+   | Severity | `2 – Warning` |
+   | Criteria | `Failed pipeline runs metrics` → FailureType: **Select all** (UserError, SystemError, BadGateway) |
+   | Condition | Greater than `0` |
+   | Time aggregation | Total |
+
+3. **Configure notification** → Create new action group:
+   - Action group name: `email-me-dev`
+   - Notification type: Email/SMS/Push/Voice
+   - Enter your email address
+
+4. Click **Create alert rule** — enabled immediately.
+
+> 💡 **What each failure type means:**
+> - `UserError` — bad config, wrong credentials, SQL error (your setup)
+> - `SystemError` — Azure infrastructure issue (Azure's fault)
+> - `BadGateway` — Self-hosted IR lost connection to ADF (network/IR issue)
+
+You will receive an email within ~5 minutes of any pipeline failure, with a direct link to the failed run in ADF Monitor.
+
 ### Step 6: Security and Governance
 
 1. **Manage Access with Entra ID**: Create security groups in Azure Entra ID (formerly Active Directory) to manage team-level access. Assign groups to resource-level RBAC roles rather than granting access to individual users, making onboarding and offboarding easier.
 
 ### Step 7: End-to-End Testing
 
-1. **Trigger and Test Pipelines**: Insert new records into the SQL database (e.g., a new row in `SalesLT.Product`) and verify that the entire pipeline runs successfully, updating the Power BI dashboard automatically on the next scheduled trigger.
+1. **Trigger and Test Pipelines**: Insert new records into the SQL database (e.g., a new row in `SalesLT.Product`) and verify that the entire pipeline runs successfully, updating the Power BI dashboard automatically on the next scheduled trigger.![1779831292177](image/README/1779831292177.png)
+
+## Azure Resource Provider Reference
+
+Every Azure service requires its namespace to be registered on the subscription before first use.
+The Portal registers providers silently; CLI scripts must do it explicitly.
+Re-running `az provider register` on an already-registered namespace is safe (idempotent).
+
+### ETL / Data Engineering Stack
+
+```bash
+# ── Core pipeline ──────────────────────────────────────────
+az provider register --namespace Microsoft.Storage          # ADLS Gen2 / Blob
+az provider register --namespace Microsoft.DataFactory      # ADF pipelines
+az provider register --namespace Microsoft.Databricks       # Spark transformation
+az provider register --namespace Microsoft.Synapse          # Serverless SQL / DW
+az provider register --namespace Microsoft.Sql              # Synapse SQL dependency
+az provider register --namespace Microsoft.KeyVault         # Secret management
+# ── Monitoring ─────────────────────────────────────────────
+az provider register --namespace microsoft.insights         # Azure Monitor / alerts
+az provider register --namespace microsoft.alertsmanagement # Alert rules
+# ── Optional: streaming ingestion ──────────────────────────
+az provider register --namespace Microsoft.EventHub         # Kafka-compatible ingestion
+az provider register --namespace Microsoft.StreamAnalytics  # Real-time processing
+```
+
+### Web App Stack
+
+```bash
+# ── Compute & hosting ──────────────────────────────────────
+az provider register --namespace Microsoft.Web              # App Service / Functions
+az provider register --namespace Microsoft.ContainerRegistry # Docker image registry
+az provider register --namespace Microsoft.ContainerService # AKS (Kubernetes)
+# ── Data ───────────────────────────────────────────────────
+az provider register --namespace Microsoft.Sql              # Azure SQL Database
+az provider register --namespace Microsoft.DocumentDB       # Cosmos DB
+az provider register --namespace Microsoft.Storage          # Blob / static files
+az provider register --namespace Microsoft.Cache            # Redis cache
+# ── Messaging ──────────────────────────────────────────────
+az provider register --namespace Microsoft.ServiceBus       # Queue / pub-sub
+az provider register --namespace Microsoft.EventGrid        # Event-driven triggers
+# ── Networking ─────────────────────────────────────────────
+az provider register --namespace Microsoft.Network          # VNet, Load Balancer
+az provider register --namespace Microsoft.Cdn              # CDN for static assets
+# ── Security & secrets ─────────────────────────────────────
+az provider register --namespace Microsoft.KeyVault         # Secret management
+# ── Monitoring ─────────────────────────────────────────────
+az provider register --namespace microsoft.insights         # App Insights + alerts
+az provider register --namespace microsoft.alertsmanagement # Alert rules
+```
+
+> **Tip:** `Microsoft.KeyVault`, `microsoft.insights`, and `microsoft.alertsmanagement` are universal — register them for any project type.
+>
+> To check what's already registered: `az provider list --query "[?registrationState=='Registered'].namespace" -o table`
+
+---
 
 ## Conclusion
 
