@@ -1,0 +1,15 @@
+{
+	"name": "adf-data-260524-dev",
+	"properties": {
+		"trustModeClaimForMi": {
+			"value": "Enabled",
+			"editable": true
+		}
+	},
+	"location": "westus2",
+	"identity": {
+		"type": "SystemAssigned",
+		"principalId": "7143f73c-db40-4714-a4e9-203dc3a73a12",
+		"tenantId": "2200ade3-19f4-434e-be4c-ba28f9269dc3"
+	}
+}

@@ -1,0 +1,16 @@
+{
+	"name": "lsadlsgen2",
+	"type": "Microsoft.DataFactory/factories/linkedservices",
+	"properties": {
+		"description": "Azure Data Lake Storage Gen2 to Linked service lssqlserveronprem",
+		"annotations": [],
+		"type": "AzureBlobFS",
+		"typeProperties": {
+			"url": "https://sadataeng260524dev.dfs.core.windows.net/",
+			"tenant": "2200ade3-19f4-434e-be4c-ba28f9269dc3",
+			"servicePrincipalId": "c46c3241-c635-441f-bbf0-5fdf63ae5f18",
+			"servicePrincipalCredentialType": "ServicePrincipalKey",
+			"encryptedCredential": "ew0KICAiVmVyc2lvbiI6ICIyMDE3LTExLTMwIiwNCiAgIlByb3RlY3Rpb25Nb2RlIjogIktleSIsDQogICJTZWNyZXRDb250ZW50VHlwZSI6ICJQbGFpbnRleHQiLA0KICAiQ3JlZGVudGlhbElkIjogIkRBVEFGQUNUT1JZQEI4NkQzMzM5LTFBMkYtNDg4My04QTUwLUZFODQxMUQwQjNBRl80NTZiNjRhMy0yZWUwLTQzNjUtOTA0My1lOTVjYWY0ZjkyN2EiDQp9"
+		}
+	}
+}

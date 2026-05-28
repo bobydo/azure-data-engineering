@@ -1,0 +1,36 @@
+{
+	"name": "ds_adls_bronze_parquet",
+	"properties": {
+		"linkedServiceName": {
+			"referenceName": "lsadlsgen2",
+			"type": "LinkedServiceReference"
+		},
+		"parameters": {
+			"schemaName": {
+				"type": "string"
+			},
+			"tableName": {
+				"type": "string"
+			}
+		},
+		"annotations": [],
+		"type": "Parquet",
+		"typeProperties": {
+			"location": {
+				"type": "AzureBlobFSLocation",
+				"fileName": {
+					"value": "@concat(dataset().tableName, '.parquet')",
+					"type": "Expression"
+				},
+				"folderPath": {
+					"value": "@{dataset().schemaName}",
+					"type": "Expression"
+				},
+				"fileSystem": "bronze"
+			},
+			"compressionCodec": "snappy"
+		},
+		"schema": []
+	},
+	"type": "Microsoft.DataFactory/factories/datasets"
+}
