@@ -8,8 +8,9 @@ on:
   workflow_dispatch:  # allows manual trigger from GitHub Actions UI
 
 env:
-  RESOURCE_GROUP:   rg-data-engineering-dev
-  ADF_NAME:         adf-data-260524-dev
+  RESOURCE_GROUP:                      rg-data-engineering-dev
+  ADF_NAME:                            adf-data-260524-dev
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24:  true
 
 jobs:
   deploy:
