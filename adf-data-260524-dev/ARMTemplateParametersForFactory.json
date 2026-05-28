@@ -1,0 +1,33 @@
+{
+	"$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentParameters.json#",
+	"contentVersion": "1.0.0.0",
+	"parameters": {
+		"factoryName": {
+			"value": "adf-data-260524-dev"
+		},
+		"lsadlsgen2_servicePrincipalCredential": {
+			"value": ""
+		},
+		"lssqlserveronprem_password": {
+			"value": ""
+		},
+		"lsadlsgen2_properties_typeProperties_url": {
+			"value": "https://sadataeng260524dev.dfs.core.windows.net/"
+		},
+		"lsadlsgen2_properties_typeProperties_tenant": {
+			"value": "2200ade3-19f4-434e-be4c-ba28f9269dc3"
+		},
+		"lsadlsgen2_properties_typeProperties_servicePrincipalId": {
+			"value": "c46c3241-c635-441f-bbf0-5fdf63ae5f18"
+		},
+		"lssqlserveronprem_properties_typeProperties_server": {
+			"value": "localhost\\SQLEXPRESS"
+		},
+		"lssqlserveronprem_properties_typeProperties_database": {
+			"value": "AdventureWorksLT2019"
+		},
+		"lssqlserveronprem_properties_typeProperties_userName": {
+			"value": "adf_user"
+		}
+	}
+}

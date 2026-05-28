@@ -1,0 +1,98 @@
+{
+	"$schema": "http://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
+	"contentVersion": "1.0.0.0",
+	"parameters": {
+		"factoryName": {
+			"type": "string",
+			"metadata": "Data Factory name",
+			"defaultValue": "adf-data-260524-dev"
+		},
+		"lsadlsgen2_servicePrincipalCredential": {
+			"type": "secureString",
+			"metadata": "Secure string for 'servicePrincipalCredential' of 'lsadlsgen2'"
+		},
+		"lssqlserveronprem_password": {
+			"type": "secureString",
+			"metadata": "Secure string for 'password' of 'lssqlserveronprem'"
+		},
+		"lsadlsgen2_properties_typeProperties_url": {
+			"type": "string",
+			"defaultValue": "https://sadataeng260524dev.dfs.core.windows.net/"
+		},
+		"lsadlsgen2_properties_typeProperties_tenant": {
+			"type": "string",
+			"defaultValue": "2200ade3-19f4-434e-be4c-ba28f9269dc3"
+		},
+		"lsadlsgen2_properties_typeProperties_servicePrincipalId": {
+			"type": "string",
+			"defaultValue": "c46c3241-c635-441f-bbf0-5fdf63ae5f18"
+		},
+		"lssqlserveronprem_properties_typeProperties_server": {
+			"type": "string",
+			"defaultValue": "localhost\\SQLEXPRESS"
+		},
+		"lssqlserveronprem_properties_typeProperties_database": {
+			"type": "string",
+			"defaultValue": "AdventureWorksLT2019"
+		},
+		"lssqlserveronprem_properties_typeProperties_userName": {
+			"type": "string",
+			"defaultValue": "adf_user"
+		},
+		"containerUri": {
+			"type": "string",
+			"metadata": "URI to storage account containing linked ARM templates"
+		},
+		"containerSasToken": {
+			"type": "string",
+			"metadata": "Sas token to storage account containing linked ARM templates"
+		}
+	},
+	"variables": {
+		"factoryId": "[concat('Microsoft.DataFactory/factories/', parameters('factoryName'))]"
+	},
+	"resources": [
+		{
+			"name": "adf-data-260524-dev_ArmTemplate_0",
+			"type": "Microsoft.Resources/deployments",
+			"apiVersion": "2024-03-01",
+			"properties": {
+				"mode": "incremental",
+				"templateLink": {
+					"uri": "[concat(parameters('containerUri'), '/ArmTemplate_0.json', parameters('containerSasToken'))]",
+					"contentVersion": "1.0.0.0"
+				},
+				"parameters": {
+					"factoryName": {
+						"value": "[parameters('factoryName')]"
+					},
+					"lsadlsgen2_servicePrincipalCredential": {
+						"value": "[parameters('lsadlsgen2_servicePrincipalCredential')]"
+					},
+					"lssqlserveronprem_password": {
+						"value": "[parameters('lssqlserveronprem_password')]"
+					},
+					"lsadlsgen2_properties_typeProperties_url": {
+						"value": "[parameters('lsadlsgen2_properties_typeProperties_url')]"
+					},
+					"lsadlsgen2_properties_typeProperties_tenant": {
+						"value": "[parameters('lsadlsgen2_properties_typeProperties_tenant')]"
+					},
+					"lsadlsgen2_properties_typeProperties_servicePrincipalId": {
+						"value": "[parameters('lsadlsgen2_properties_typeProperties_servicePrincipalId')]"
+					},
+					"lssqlserveronprem_properties_typeProperties_server": {
+						"value": "[parameters('lssqlserveronprem_properties_typeProperties_server')]"
+					},
+					"lssqlserveronprem_properties_typeProperties_database": {
+						"value": "[parameters('lssqlserveronprem_properties_typeProperties_database')]"
+					},
+					"lssqlserveronprem_properties_typeProperties_userName": {
+						"value": "[parameters('lssqlserveronprem_properties_typeProperties_userName')]"
+					}
+				}
+			},
+			"dependsOn": []
+		}
+	]
+}
