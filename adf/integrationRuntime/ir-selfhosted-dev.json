@@ -1,0 +1,7 @@
+{
+	"name": "ir-selfhosted-dev",
+	"properties": {
+		"type": "SelfHosted",
+		"description": "Self-hosted IR for on-prem SQL Server (AdventureWorksLT2019) — dev environment"
+	}
+}

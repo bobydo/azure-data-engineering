@@ -1,0 +1,33 @@
+{
+	"name": "ds_sqlserver_source",
+	"properties": {
+		"linkedServiceName": {
+			"referenceName": "lssqlserveronprem",
+			"type": "LinkedServiceReference"
+		},
+		"parameters": {
+			"tableName": {
+				"type": "string",
+				"defaultValue": "Sales"
+			},
+			"schemaName": {
+				"type": "string",
+				"defaultValue": "Customer"
+			}
+		},
+		"annotations": [],
+		"type": "SqlServerTable",
+		"schema": [],
+		"typeProperties": {
+			"schema": {
+				"value": "@dataset().schemaName",
+				"type": "Expression"
+			},
+			"table": {
+				"value": "@dataset().tableName",
+				"type": "Expression"
+			}
+		}
+	},
+	"type": "Microsoft.DataFactory/factories/datasets"
+}
