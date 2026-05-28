@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - adf_publish   # ADF Studio writes here on every Publish click
+  workflow_dispatch:  # allows manual trigger from GitHub Actions UI
 
 env:
   RESOURCE_GROUP:   rg-data-engineering-dev
