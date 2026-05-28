@@ -27,14 +27,20 @@ Do **not** edit files here manually — ADF Studio writes them automatically on 
 
 ## Folder Contents (auto-managed by ADF Studio)
 
-| Folder | Contents |
-|---|---|
-| `pipeline/` | Pipeline definitions — e.g. `pl-ingestion-sqlserver-to-bronze.json` |
-| `dataset/` | Dataset definitions — e.g. `ds_sqlserver_source.json` |
-| `linkedService/` | Linked service definitions (resource refs only — no secrets) |
-| `trigger/` | Trigger definitions — e.g. `triggerdaily.json` |
-| `integrationRuntime/` | IR definitions — e.g. `ir-selfhosted-dev.json` |
-| `factory/` | Factory-level global settings |
+These folders are **ADF defaults** — fixed by ADF, not configurable. ADF Studio creates
+and writes to them automatically; you do not choose these names.
+
+| ADF Object | Stored Folder | Example file |
+|---|---|---|
+| Pipeline | `pipeline/` | `pl-ingestion-sqlserver-to-bronze.json` |
+| Dataset | `dataset/` | `ds_sqlserver_source.json` |
+| Linked Service | `linkedService/` | `lsadlsgen2.json` (resource refs only — no secrets) |
+| Trigger | `trigger/` | `triggerdaily.json` |
+| Integration Runtime | `integrationRuntime/` | `ir-selfhosted-dev.json` |
+| Dataflow | `dataflow/` | *(if Data Flows are added)* |
+| Factory settings | `factory/` | `adf-data-260524-dev.json` |
+
+![1780003282859](image/README/1780003282859.png)
 
 ---
 
