@@ -1,0 +1,52 @@
+══════════════════════════════════════════════════════════════════════════════
+AZURE RESOURCE LIST
+══════════════════════════════════════════════════════════════════════════════
+
+── Command ───────────────────────────────────────────────────────────────────
+
+  az resource list --query "[].{Name:name, Type:type, RG:resourceGroup}" -o table
+
+── Output ────────────────────────────────────────────────────────────────────
+
+Name                            Type                                              RG
+------------------------------  ------------------------------------------------  ---------------------------------------------------------------
+adf-data-260524-dev             Microsoft.DataFactory/factories                   rg-data-engineering-dev
+sadataeng260524dev              Microsoft.Storage/storageAccounts                 rg-data-engineering-dev
+dbw-data-engineering-dev        Microsoft.Databricks/workspaces                   rg-data-engineering-dev
+synapse-dataeng-dev             Microsoft.Synapse/workspaces                      rg-data-engineering-dev
+kv-dataengproj-dev              Microsoft.KeyVault/vaults                         rg-data-engineering-dev
+email-me-dev                    Microsoft.Insights/actiongroups                   rg-data-engineering-dev
+ADF Pipeline Failures           Microsoft.Insights/metricalerts                   rg-data-engineering-dev
+dbstoragepeewpmrmj2sgu          Microsoft.Storage/storageAccounts                 databricks-rg-dbw-data-engineering-dev-x1i5c4oruxw5j
+workers-sg                      Microsoft.Network/networkSecurityGroups           databricks-rg-dbw-data-engineering-dev-x1i5c4oruxw5j
+nat-gw-public-ip                Microsoft.Network/publicIPAddresses               databricks-rg-dbw-data-engineering-dev-x1i5c4oruxw5j
+unity-catalog-access-connector  Microsoft.Databricks/accessConnectors             databricks-rg-dbw-data-engineering-dev-x1i5c4oruxw5j
+dbmanagedidentity               Microsoft.ManagedIdentity/userAssignedIdentities  databricks-rg-dbw-data-engineering-dev-x1i5c4oruxw5j
+nat-gateway                     Microsoft.Network/natGateways                     databricks-rg-dbw-data-engineering-dev-x1i5c4oruxw5j
+workers-vnet                    Microsoft.Network/virtualNetworks                 databricks-rg-dbw-data-engineering-dev-x1i5c4oruxw5j
+NetworkWatcher_eastus           Microsoft.Network/networkWatchers                 NetworkWatcherRG
+NetworkWatcher_westus2          Microsoft.Network/networkWatchers                 NetworkWatcherRG
+synapse-dataeng-dev             Microsoft.Sql/servers                             synapseworkspace-managedrg-269f0fcc-27e9-4a45-8280-e2a5851eb85c
+synapse-dataeng-dev/master      Microsoft.Sql/servers/databases                   synapseworkspace-managedrg-269f0fcc-27e9-4a45-8280-e2a5851eb85c
+
+── Key Vault: kv-dataengproj-dev ─────────────────────────────────────────────
+
+  Command: az keyvault secret list --vault-name kv-dataengproj-dev --query "[].name" -o table
+
+  Secret Name        Value
+  -----------------  --------------------------------------------------
+  databricks-token   xxxxx (populated in Phase 8)
+  sp-client-id       xxxxx
+  sp-client-secret   xxxxx
+  sp-tenant-id       xxxxx
+  sql-password       xxxxx
+  sql-username       xxxxx
+
+── Databricks Workspace ──────────────────────────────────────────────────────
+
+  Command: az databricks workspace show --name dbw-data-engineering-dev --resource-group rg-data-engineering-dev --query workspaceUrl -o tsv
+
+  URL : adb-7405614242013965.5.azuredatabricks.net
+  Secret Scope (created in step 7.3): kv-scope  ← Databricks resource, not Azure
+
+══════════════════════════════════════════════════════════════════════════════

@@ -10,7 +10,7 @@ BEGIN
             *
         FROM
             OPENROWSET(
-                BULK ''https://sadataengineeringproj.dfs.core.windows.net/gold/SalesLT/' + @ViewName + '/'',
+                BULK ''https://sadataengineeringproj.dfs.core.windows.net/gold/Sales/' + @ViewName + '/'',
                 FORMAT = ''DELTA''
             ) AS [result]'
 

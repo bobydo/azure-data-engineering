@@ -121,10 +121,10 @@ Azure Data Factory and Storage Account names must be **globally unique** across 
         REPLACE;
    ```
 4. In SSMS, right-click the server → **Properties** → **Security** → set Server Authentication to **SQL Server and Windows Authentication mode**. Restart the SQL Server service via SQL Server Configuration Manager.
-5. Create a dedicated SQL login and grant it access to the SalesLT schema:
+5. Create a dedicated SQL login and grant it access to the Sales schema:
    ```sql
    USE AdventureWorksLT2019;
-   GRANT SELECT ON SCHEMA::SalesLT TO <your_login>;
+   GRANT SELECT ON SCHEMA::Sales TO <your_login>;
    ```
 6. Store the login credentials as secrets in Azure Key Vault (used by ADF linked service).
 
@@ -142,7 +142,7 @@ Azure Data Factory and Storage Account names must be **globally unique** across 
 ### Step 2: Data Ingestion
 
 1. **Install Self-hosted Integration Runtime**: In ADF Studio → Manage → Integration Runtimes → New → Self-hosted. Install the runtime on your local machine (the same machine running SQL Server) so ADF can reach the on-premises database.
-2. **Ingest Data with ADF**: Create a pipeline using a Lookup + ForEach pattern to dynamically copy all tables under the `SalesLT` schema from SQL Server to the `bronze` layer in ADLS as Parquet files, structured as `bronze/SalesLT/<TableName>/<TableName>.parquet`.
+2. **Ingest Data with ADF**: Create a pipeline using a Lookup + ForEach pattern to dynamically copy all tables under the `Sales` schema from SQL Server to the `bronze` layer in ADLS as Parquet files, structured as `bronze/Sales/<TableName>/<TableName>.parquet`.
 
 ### Step 3: Data Transformation
 
@@ -178,7 +178,7 @@ az provider register --namespace microsoft.alertsmanagement --wait
 ```
 
 Or via Portal: **Subscriptions** → your subscription → **Settings** → **Resource providers** → search `insights` → **Register**.
-![1779831489877](image/README/1779831489877.png)
+![1779831489877](docs/images/1779831489877.png)
 
 #### 5b: Set Up ADF Pipeline Failure Alert
 
@@ -215,7 +215,7 @@ You will receive an email within ~5 minutes of any pipeline failure, with a dire
 
 ### Step 7: End-to-End Testing
 
-1. **Trigger and Test Pipelines**: Insert new records into the SQL database (e.g., a new row in `SalesLT.Product`) and verify that the entire pipeline runs successfully, updating the Power BI dashboard automatically on the next scheduled trigger.![1779831292177](image/README/1779831292177.png)
+1. **Trigger and Test Pipelines**: Insert new records into the SQL database (e.g., a new row in `Sales.Product`) and verify that the entire pipeline runs successfully, updating the Power BI dashboard automatically on the next scheduled trigger.![1779831292177](docs/images/1779831292177.png)
 
 ## Azure Resource Provider Reference
 
@@ -271,6 +271,37 @@ az provider register --namespace microsoft.alertsmanagement # Alert rules
 > To check what's already registered: `az provider list --query "[?registrationState=='Registered'].namespace" -o table`
 
 ---
+
+## Screenshots
+
+### Phase 5 — ADF Self-Hosted Integration Runtime
+<!-- TODO: add screenshot -->
+
+### Phase 6 — ADF Linked Services
+#### SQL Server Linked Service (`lssqlserveronprem`)
+<!-- TODO: add screenshot -->
+
+#### ADLS Gen2 Linked Service (`lsadlsgen2`)
+<!-- TODO: add screenshot -->
+
+#### Databricks Linked Service (`lsdatabricks`)
+<!-- TODO: add screenshot -->
+
+### Phase 6 — ADF Datasets
+#### SQL Server Source Dataset (`ds_sqlserver_source`)
+![1779901354821](docs/images/1779901354821.png)
+
+#### ADLS Bronze Parquet Sink Dataset (`ds_adls_bronze_parquet`)
+<!-- TODO: add screenshot -->
+
+### Phase 6 — ADF Pipeline (`pl-ingestion-sqlserver-to-bronze`)
+<!-- TODO: add screenshot -->
+
+### Phase 7 — Databricks Notebooks
+<!-- TODO: add screenshot -->
+
+### Phase 9 — End-to-End Pipeline Run
+<!-- TODO: add screenshot -->
 
 ## Conclusion
 

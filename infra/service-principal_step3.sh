@@ -100,7 +100,17 @@ STORAGE_RESOURCE_ID=$(az storage account show \
     -o tsv 2>/dev/null)
 
 # Get SP object ID (not appId) — required for --assignee-object-id
-SP_OBJECT_ID=$(az ad sp show --id "$SP_CLIENT_ID" --query id -o tsv 2>/dev/null)
+SP_OBJECT_ID=$(az ad sp show --id "$SP_CLIENT_ID" --query id -o tsv 2>/dev/null || true)
+
+if [[ -z "$SP_OBJECT_ID" ]]; then
+    echo "   ❌ Cannot resolve SP object ID for appId '$SP_CLIENT_ID'"
+    echo "      The SP may not exist or may not be visible in this tenant."
+    echo "      Assign the role manually:"
+    echo "      Portal → Storage '$STORAGE_ACCOUNT' → Access Control (IAM)"
+    echo "      → Add role assignment → Storage Blob Data Contributor"
+    echo "      → Search by display name: $SP_DISPLAY_NAME"
+    exit 1
+fi
 
 ASSIGN_OUTPUT=$(az role assignment create \
     --assignee-object-id      "$SP_OBJECT_ID" \
@@ -114,9 +124,25 @@ if echo "$ASSIGN_OUTPUT" | grep -q "RoleAssignmentExists"; then
 elif echo "$ASSIGN_OUTPUT" | grep -q "roleDefinitionId"; then
     echo "   ✅ Role assigned"
 else
-    echo "   ⚠️  Could not assign role via CLI (MSA limitation) — assign manually:"
+    echo "   ❌ Role assignment failed — assign manually and re-run to continue:"
     echo "      Portal → Storage '$STORAGE_ACCOUNT' → Access Control (IAM)"
     echo "      → Add role assignment → Storage Blob Data Contributor → $SP_DISPLAY_NAME"
+    echo "      Error details: $ASSIGN_OUTPUT"
+    exit 1
+fi
+
+# Verify role was actually assigned
+echo "   🔍 Verifying role assignment..."
+VERIFY=$(az role assignment list \
+    --assignee "$SP_OBJECT_ID" \
+    --scope    "$STORAGE_RESOURCE_ID" \
+    --query    "[?roleDefinitionName=='Storage Blob Data Contributor'].roleDefinitionName" \
+    -o tsv 2>/dev/null || true)
+
+if [[ "$VERIFY" == "Storage Blob Data Contributor" ]]; then
+    echo "   ✅ Role verified on storage account"
+else
+    echo "   ⚠️  Could not verify role (common with MSA accounts — check Portal IAM tab)"
 fi
 
 # =============================================================================

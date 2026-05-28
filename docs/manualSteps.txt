@@ -43,7 +43,7 @@ PHASE 1 — ON-PREMISES SQL SERVER SETUP                              ✅ COMPLE
         USE AdventureWorksLT2019;
         CREATE LOGIN <username> WITH PASSWORD = '<password>';
         CREATE USER  <username> FOR LOGIN <username>;
-        GRANT SELECT ON SCHEMA::SalesLT TO <username>;
+        GRANT SELECT ON SCHEMA::Sales TO <username>;
 
         NOTE: keep username & password — needed for Key Vault secrets (Step 3)
 
@@ -164,17 +164,17 @@ PHASE 5 — AZURE DATA FACTORY SETUP
         Portal → kv-dataengproj → Access Control (IAM)
         → Add: Key Vault Secrets User → Member: ADF managed identity
 
-[ ] 5.5  Create ADF pipeline (copy all SalesLT tables to bronze):
+[ ] 5.5  Create ADF pipeline (copy all Sales tables to bronze):
         Pattern: Lookup → ForEach → Copy Data
         Source query:
             SELECT s.name AS SchemaName, t.name AS TableName
             FROM sys.tables t
             INNER JOIN sys.schemas s ON t.schema_id = s.schema_id
-            WHERE s.name = 'SalesLT'
-        Sink path format:  bronze/SalesLT/<TableName>/<TableName>.parquet
+            WHERE s.name = 'Sales'
+        Sink path format:  bronze/Sales/<TableName>/<TableName>.parquet
         Validate → Publish All → Trigger Now to test
 
-[ ] 5.6  Verify bronze container in ADLS has all SalesLT folders & parquet files
+[ ] 5.6  Verify bronze container in ADLS has all Sales folders & parquet files
 
 
 ────────────────────────────────────────────────────────────────────────────────
@@ -205,15 +205,15 @@ PHASE 6 — DATABRICKS SETUP
 [ ] 6.4  Run storagemount notebook:
         Open storagemount → attach to cluster → Run All
         Verify: "✅ Spark OAuth2 config set" and paths printed correctly
-        Verify: BRONZE/SalesLT/ shows all 10 tables
+        Verify: BRONZE/Sales/ shows all 10 tables
 
 [ ] 6.5  Run bronze to silver notebook:
         Open → attach cluster → Run All
-        Verify: all 10 tables show "✅ <table> → silver/SalesLT/<table>/"
+        Verify: all 10 tables show "✅ <table> → silver/Sales/<table>/"
 
 [ ] 6.6  Run silver to gold notebook:
         Open → attach cluster → Run All
-        Verify: all 10 tables show "✅ <table> → gold/SalesLT/<table>/"
+        Verify: all 10 tables show "✅ <table> → gold/Sales/<table>/"
 
 
 ────────────────────────────────────────────────────────────────────────────────
@@ -267,7 +267,7 @@ PHASE 8 — SYNAPSE ANALYTICS SETUP
         Test connection → Create → Publish All
 
 [ ] 8.5  Create Synapse pipeline to build views for all gold tables:
-        Pattern: Get Metadata (child items of gold/SalesLT/)
+        Pattern: Get Metadata (child items of gold/Sales/)
                  → ForEach → Stored Procedure activity
         Stored procedure param: ViewName = @item().name
         Publish All → Trigger Now
@@ -334,7 +334,7 @@ PHASE 11 — END-TO-END TEST
 
 [ ] 11.2 Insert a test row in SSMS to verify pipeline picks it up:
          USE AdventureWorksLT2019;
-         INSERT INTO SalesLT.Product
+         INSERT INTO Sales.Product
              (Name, ProductNumber, Color, StandardCost, ListPrice,
               Size, Weight, ProductCategoryID, ProductModelID,
               SellStartDate, SellEndDate, DiscontinuedDate,

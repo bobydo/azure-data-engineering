@@ -1,7 +1,7 @@
 USE [AdventureWorksLT2019]
 GO
 
-INSERT INTO [SalesLT].[Product]
+INSERT INTO [Sales].[Product]
            ([Name]
            ,[ProductNumber]
            ,[Color]

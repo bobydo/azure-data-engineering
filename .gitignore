@@ -216,6 +216,7 @@ __marimo__/
 
 # SQL Server backup files (too large for GitHub)
 *.bak
+sql/data/
 
 # Local secrets — never commit
 .env
