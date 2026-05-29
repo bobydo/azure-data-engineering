@@ -44,6 +44,40 @@ and writes to them automatically; you do not choose these names.
 
 ---
 
+## CI/CD Flow: ADF Studio → GitHub Actions → Azure
+
+```
+ADF Studio                         GitHub Actions
+──────────────────────             ──────────────────────────────────────
+Make changes in pipeline/
+dataset/linkedService etc.
+
+Click Publish
+  │
+  ├─→ writes ARM template    →→→   adf_publish branch updated
+  │   to adf_publish branch              ↓
+  │                                 workflow triggers (adf-deploy.yml)
+  │                                      ↓
+  │                                 Stop ADF triggers
+  │                                      ↓
+  │                                 Deploy ARM template to Azure
+  │                                      ↓
+  │                                 Restart ADF triggers
+  │                                      ↓
+  └─────────────────────────────── Azure ADF updated ✅
+```
+
+### Branch roles
+
+| Branch | Written by | Contains | Used for |
+|---|---|---|---|
+| `main` | ADF Studio (saves) | Source JSON — `adf/pipeline/*.json` etc. | Development, code review, history |
+| `adf_publish` | ADF Studio (Publish only) | Compiled ARM template Azure can deploy | CI/CD deployment — never edit manually |
+
+> **You never push to `adf_publish` directly** — treat it as ADF Studio's compiler output.
+
+---
+
 ## Important Notes
 
 - **Secrets are never stored here** — linked services reference Key Vault, not raw credentials
