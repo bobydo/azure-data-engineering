@@ -1,0 +1,26 @@
+# Databricks Troubleshooting
+
+
+── OSError [Errno 95] on import ─────────────────────────────────────────────
+  Cause : /Workspace/ virtual filesystem blocks Python import operations
+  Fix   : autoload.ipynb copies lib/ to /tmp/ (real filesystem) before import
+
+
+── Stale library after git push ─────────────────────────────────────────────
+  Cause : /tmp/ persists for the cluster lifetime, not reset between runs
+            Session 1  → lib v1 copied to /tmp/de_lib/
+            git push   → CI/CD updates /Workspace/lib/ to v2
+            Session 2  → /tmp/de_lib/ still has v1 (stale!)
+  Fix   : autoload.ipynb deletes /tmp/de_lib/ on each new session then
+          re-copies fresh from /Workspace/lib/
+  Manual: shutil.rmtree('/tmp/de_lib') then re-run autoload cell
+
+
+── %run ./lib/bootstrap not found ───────────────────────────────────────────
+  Cause : %run only works with .ipynb notebooks, not .py source files
+  Fix   : use %run ./autoload (autoload.ipynb is deployed as JUPYTER format)
+
+
+── Cluster cold start 3-5 min ───────────────────────────────────────────────
+  Cause : cluster auto-terminated after idle timeout
+  Fix   : Compute → cluster-dev → Edit → Auto termination → 120 min
