@@ -1,19 +1,19 @@
-# lib/bootstrap.py — one-line loader for all lib/ modules
-# ──────────────────────────────────────────────────────────
+# lib/bootstrap.py — one-line loader for the bobydo namespace
+# ─────────────────────────────────────────────────────────────
 # Add ONE cell at the top of every notebook:
 #
 #   %run ./lib/bootstrap
 #
-# After that, both styles work:
+# After that, use the bobydo namespace:
 #
-#   from adls_auth import AdlsAuth        # direct import
-#   import adls_auth; adls_auth.AdlsAuth  # module namespace
+#   auth  = bobydo.AdlsAuth(dbutils, spark)
+#   paths = auth.setup("sadataeng260524dev")
 
 import sys
 
 # Discover lib/ path from the calling notebook's workspace location.
 # notebookPath() returns the CALLER's path (not bootstrap.py's path),
-# so this resolves correctly regardless of where the notebooks are deployed.
+# so this resolves correctly regardless of where notebooks are deployed.
 _ctx  = dbutils.notebook.entry_point.getDbutils().notebook().getContext()
 _root = '/Workspace' + _ctx.notebookPath().get().rsplit('/', 1)[0]
 _lib  = f"{_root}/lib"
@@ -21,8 +21,7 @@ _lib  = f"{_root}/lib"
 if _lib not in sys.path:
     sys.path.insert(0, _lib)
 
-# Pre-import all lib modules so callers get them in scope immediately
-import adls_auth                              # noqa: E402
-from adls_auth import AdlsAuth, setup_logger  # noqa: E402, F401
+# Import bobydo namespace — available as bobydo.AdlsAuth after %run
+import bobydo  # noqa: E402
 
-print(f"lib loaded from: {_lib}")
+print(f"bobydo v{bobydo.__version__} loaded from: {_lib}")

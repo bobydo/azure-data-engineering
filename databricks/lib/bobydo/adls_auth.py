@@ -1,8 +1,9 @@
-# lib/adls_auth.py — Azure ADLS Gen2 authentication library
-# ───────────────────────────────────────────────────────────
+# bobydo/adls_auth.py — Azure ADLS Gen2 authentication library
+# ─────────────────────────────────────────────────────────────
+# Namespace: bobydo.AdlsAuth
 # Usage in any notebook:
-#   %run ./lib/adls_auth
-#   auth  = AdlsAuth(dbutils, spark)
+#   %run ./lib/bootstrap
+#   auth  = bobydo.AdlsAuth(dbutils, spark)
 #   paths = auth.setup(storage_account)   # {"BRONZE": ..., "SILVER": ..., "GOLD": ...}
 
 import logging
