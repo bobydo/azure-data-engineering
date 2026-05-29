@@ -23,32 +23,38 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 2. Install Databricks CLI (official action)
+      # 2. Install Databricks CLI (legacy pip — stable workspace import syntax)
       - name: Install Databricks CLI
-        uses: databricks/setup-cli@main
+        run: pip install databricks-cli
 
-      # 3. Ensure the target workspace folder exists
+      # 3. Configure CLI authentication
+      - name: Configure Databricks CLI
+        run: |
+          databricks configure --host "$DATABRICKS_HOST" --token "$DATABRICKS_TOKEN"
+          echo "✅ Databricks CLI configured"
+
+      # 4. Ensure the target workspace folder exists
       - name: Create workspace folder if missing
         run: |
           databricks workspace mkdirs "$WORKSPACE_PATH"
           echo "✅ Workspace folder ready: $WORKSPACE_PATH"
 
-      # 4. Deploy all notebooks from databricks/ to workspace
+      # 5. Deploy all notebooks from databricks/ to workspace
       - name: Deploy all notebooks
         run: |
           for notebook in databricks/*.ipynb; do
             name=$(basename "$notebook" .ipynb)
             echo "Deploying $name ..."
             databricks workspace import \
-              "$WORKSPACE_PATH/$name" \
-              --file "$notebook" \
               --format JUPYTER \
-              --overwrite
+              --overwrite \
+              "$WORKSPACE_PATH/$name" \
+              "$notebook"
             echo "  ✅ $name → $WORKSPACE_PATH/$name"
           done
 
-      # 5. Confirm — list deployed notebooks
+      # 6. Confirm — list deployed notebooks
       - name: Verify deployment
         run: |
           echo "── Notebooks in $WORKSPACE_PATH ──"
-          databricks workspace list "$WORKSPACE_PATH"
+          databricks workspace ls "$WORKSPACE_PATH"
