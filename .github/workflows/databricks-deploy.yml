@@ -9,7 +9,6 @@ on:
 
 env:
   DATABRICKS_HOST:                     https://adb-7405614242013965.5.azuredatabricks.net
-  DATABRICKS_TOKEN:                    ${{ secrets.DATABRICKS_TOKEN }}
   WORKSPACE_PATH:                      /Users/baoshenyi7768@outlook.com/notebooks
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24:  true
 
@@ -23,39 +22,65 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 2. Install legacy Databricks CLI 0.17.7 — last version using simple PAT token auth
-      #    (0.18+ switched to unified auth which tries Azure OAuth on GitHub runners)
-      - name: Install Databricks CLI
-        run: pip install databricks-cli==0.17.7
-
-      # 3. Configure CLI authentication — write ~/.databrickscfg directly (non-interactive)
-      - name: Configure Databricks CLI
-        run: |
-          printf "[DEFAULT]\nhost = %s\ntoken = %s\n" "$DATABRICKS_HOST" "$DATABRICKS_TOKEN" > ~/.databrickscfg
-          echo "✅ Databricks CLI configured"
-
-      # 4. Ensure the target workspace folder exists
-      - name: Create workspace folder if missing
-        run: |
-          databricks workspace mkdirs "$WORKSPACE_PATH"
-          echo "✅ Workspace folder ready: $WORKSPACE_PATH"
-
-      # 5. Deploy all notebooks from databricks/ to workspace
+      # 2. Upload all notebooks via Databricks REST API (no CLI — avoids auth version issues)
       - name: Deploy all notebooks
+        env:
+          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
         run: |
-          for notebook in databricks/*.ipynb; do
-            name=$(basename "$notebook" .ipynb)
-            echo "Deploying $name ..."
-            databricks workspace import \
-              --format JUPYTER \
-              --overwrite \
-              "$WORKSPACE_PATH/$name" \
-              "$notebook"
-            echo "  ✅ $name → $WORKSPACE_PATH/$name"
-          done
+          python3 << 'PYEOF'
+          import os, base64, json, glob, sys
+          import urllib.request, urllib.error
 
-      # 6. Confirm — list deployed notebooks
+          HOST           = os.environ['DATABRICKS_HOST']
+          TOKEN          = os.environ['DATABRICKS_TOKEN']
+          WORKSPACE_PATH = os.environ['WORKSPACE_PATH']
+          HEADERS        = {'Authorization': f'Bearer {TOKEN}', 'Content-Type': 'application/json'}
+
+          def api_post(endpoint, payload):
+              req = urllib.request.Request(
+                  f'{HOST}/api/2.0/{endpoint}',
+                  data=json.dumps(payload).encode(),
+                  headers=HEADERS,
+                  method='POST'
+              )
+              try:
+                  with urllib.request.urlopen(req) as r:
+                      return json.load(r)
+              except urllib.error.HTTPError as e:
+                  print(f'HTTP {e.code}: {e.read().decode()}', file=sys.stderr)
+                  sys.exit(1)
+
+          # Create workspace folder
+          api_post('workspace/mkdirs', {'path': WORKSPACE_PATH})
+          print(f'Workspace folder ready: {WORKSPACE_PATH}')
+
+          # Upload each notebook
+          notebooks = sorted(glob.glob('databricks/*.ipynb'))
+          for nb in notebooks:
+              name = os.path.splitext(os.path.basename(nb))[0]
+              with open(nb, 'rb') as f:
+                  content = base64.b64encode(f.read()).decode()
+              api_post('workspace/import', {
+                  'path':      f'{WORKSPACE_PATH}/{name}',
+                  'format':    'JUPYTER',
+                  'content':   content,
+                  'overwrite': True
+              })
+              print(f'  OK {name}')
+
+          print(f'\n{len(notebooks)} notebooks deployed to {WORKSPACE_PATH}')
+          PYEOF
+
+      # 3. Confirm — list deployed notebooks
       - name: Verify deployment
+        env:
+          DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
         run: |
-          echo "── Notebooks in $WORKSPACE_PATH ──"
-          databricks workspace ls "$WORKSPACE_PATH"
+          echo "Notebooks in $WORKSPACE_PATH:"
+          curl -sf "${DATABRICKS_HOST}/api/2.0/workspace/list?path=${WORKSPACE_PATH}" \
+            -H "Authorization: Bearer $DATABRICKS_TOKEN" | \
+            python3 -c "
+          import sys, json
+          for obj in json.load(sys.stdin).get('objects', []):
+              print(' ', obj['path'].split('/')[-1])
+          "
