@@ -1,11 +1,9 @@
-# utils.py — Shared Databricks utility library
-# ─────────────────────────────────────────────
+# lib/adls_auth.py — Azure ADLS Gen2 authentication library
+# ───────────────────────────────────────────────────────────
 # Usage in any notebook:
-#   %run ./utils
-#   auth = AdlsAuth(dbutils, spark)
-#   auth.verify_secrets()
-#   auth.configure_oauth2(storage_account)
-#   paths = auth.get_paths(storage_account)   # {"BRONZE": ..., "SILVER": ..., "GOLD": ...}
+#   %run ./lib/adls_auth
+#   auth  = AdlsAuth(dbutils, spark)
+#   paths = auth.setup(storage_account)   # {"BRONZE": ..., "SILVER": ..., "GOLD": ...}
 
 import logging
 import sys
