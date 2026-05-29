@@ -1,12 +1,9 @@
 name: Deploy Databricks Notebooks
 
-# Triggers on push to main when any notebook or library changes
+# Triggers on every push to main
 on:
   push:
     branches: [main]
-    paths:
-      - 'databricks/*.ipynb'
-      - 'databricks/lib/**'
   workflow_dispatch:   # allows manual trigger from GitHub Actions UI
 
 env:
