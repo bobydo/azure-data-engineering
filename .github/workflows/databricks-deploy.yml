@@ -1,10 +1,12 @@
 name: Deploy Databricks Notebooks
 
-# Triggers on push to main when any notebook changes
+# Triggers on push to main when any notebook or library changes
 on:
   push:
     branches: [main]
-    paths: ['databricks/*.ipynb']
+    paths:
+      - 'databricks/*.ipynb'
+      - 'databricks/lib/**'
   workflow_dispatch:   # allows manual trigger from GitHub Actions UI
 
 env:
@@ -18,12 +20,12 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. Checkout main branch (contains databricks/*.ipynb)
+      # 1. Checkout main branch
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 2. Upload all notebooks via Databricks REST API (no CLI — avoids auth version issues)
-      - name: Deploy all notebooks
+      # 2. Deploy notebooks + lib/ via Databricks REST API
+      - name: Deploy notebooks and library
         env:
           DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
         run: |
@@ -50,11 +52,16 @@ jobs:
                   print(f'HTTP {e.code}: {e.read().decode()}', file=sys.stderr)
                   sys.exit(1)
 
-          # Create workspace folder
-          api_post('workspace/mkdirs', {'path': WORKSPACE_PATH})
-          print(f'Workspace folder ready: {WORKSPACE_PATH}')
+          # ── Create workspace folders ───────────────────────────────────────
+          for folder in [
+              WORKSPACE_PATH,
+              f'{WORKSPACE_PATH}/lib',
+              f'{WORKSPACE_PATH}/lib/bobydo',
+          ]:
+              api_post('workspace/mkdirs', {'path': folder})
+          print(f'Workspace folders ready under: {WORKSPACE_PATH}')
 
-          # Upload each notebook
+          # ── Deploy notebooks (.ipynb) ──────────────────────────────────────
           notebooks = sorted(glob.glob('databricks/*.ipynb'))
           for nb in notebooks:
               name = os.path.splitext(os.path.basename(nb))[0]
@@ -66,21 +73,47 @@ jobs:
                   'content':   content,
                   'overwrite': True
               })
-              print(f'  OK {name}')
+              print(f'  notebook: {name}')
 
-          print(f'\n{len(notebooks)} notebooks deployed to {WORKSPACE_PATH}')
+          # ── Deploy library (.py files) ─────────────────────────────────────
+          py_files = sorted(glob.glob('databricks/lib/**/*.py', recursive=True))
+          for py in py_files:
+              # e.g. databricks/lib/bobydo/adls_auth.py
+              #   → /Users/.../notebooks/lib/bobydo/adls_auth.py
+              rel  = py.replace('databricks/', '', 1)   # lib/bobydo/adls_auth.py
+              dest = f'{WORKSPACE_PATH}/{rel}'
+              with open(py, 'rb') as f:
+                  content = base64.b64encode(f.read()).decode()
+              api_post('workspace/import', {
+                  'path':      dest,
+                  'format':    'SOURCE',
+                  'language':  'PYTHON',
+                  'content':   content,
+                  'overwrite': True
+              })
+              print(f'  lib:      {rel}')
+
+          print(f'\n{len(notebooks)} notebooks, {len(py_files)} lib files deployed')
           PYEOF
 
-      # 3. Confirm — list deployed notebooks
+      # 3. Confirm deployment
       - name: Verify deployment
         env:
           DATABRICKS_TOKEN: ${{ secrets.DATABRICKS_TOKEN }}
         run: |
-          echo "Notebooks in $WORKSPACE_PATH:"
+          echo "── Notebooks ──"
           curl -sf "${DATABRICKS_HOST}/api/2.0/workspace/list?path=${WORKSPACE_PATH}" \
             -H "Authorization: Bearer $DATABRICKS_TOKEN" | \
             python3 -c "
           import sys, json
-          for obj in json.load(sys.stdin).get('objects', []):
-              print(' ', obj['path'].split('/')[-1])
+          for o in json.load(sys.stdin).get('objects', []):
+              print(' ', o['path'].split('/')[-1])
+          "
+          echo "── lib/ ──"
+          curl -sf "${DATABRICKS_HOST}/api/2.0/workspace/list?path=${WORKSPACE_PATH}/lib" \
+            -H "Authorization: Bearer $DATABRICKS_TOKEN" | \
+            python3 -c "
+          import sys, json
+          for o in json.load(sys.stdin).get('objects', []):
+              print(' ', o['path'].split('/')[-1])
           "
