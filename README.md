@@ -66,6 +66,37 @@ To meet these requirements, the solution is broken down into the following compo
 - **SQL Server Express + SSMS (On-Premises)**: Source of customer and sales data (AdventureWorksLT2019).
 - **Azure CLI**: For scripted, idempotent resource provisioning across dev / UAT / prod environments.
 
+## Azure Cloud Shell — Your Browser-Based Deployment Machine
+
+Azure Cloud Shell (`portal.azure.com` → click the **`>_`** icon in the top bar) is a fully managed Bash/PowerShell environment in your browser. It comes with `az`, `git`, `python3`, and other tools pre-installed and is **automatically authenticated** to your Azure subscription — no login required.
+
+Use it to clone this repo and run any infra or utility script without needing a local Azure CLI setup:
+
+```bash
+# Clone the repo
+git clone https://github.com/bobydo/azure-data-engineering.git
+cd azure-data-engineering
+
+# Show all Key Vault secret names and values
+bash infra/show-secrets.sh
+
+# Provision all Azure resources (dev environment)
+bash infra/provision_step1.sh dev
+
+# Store credentials in Key Vault
+bash infra/keyvault-secrets_step2.sh dev
+
+# Create service principal + assign ADLS role
+bash infra/service-principal_step3.sh dev
+
+# Verify all resources are healthy
+bash infra/check-resources_step5.sh dev
+```
+
+> **Tip:** Cloud Shell is ideal for enterprise environments where you want all deployments to run from Azure — not from a developer's local machine. It also has persistent storage (5 GB Azure Files mount) so files survive between sessions.
+
+---
+
 ## Infrastructure as Code
 
 Azure resources are provisioned via [`infra/provision_step1.sh`](infra/provision_step1.sh) using the Azure CLI. The script is **idempotent** — safe to re-run at any time; existing resources are detected and skipped automatically.
