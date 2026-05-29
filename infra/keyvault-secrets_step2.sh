@@ -109,6 +109,33 @@ set_secret() {
 }
 
 # =============================================================================
+# Grant AzureDatabricks read access to Key Vault secrets
+# Required for Databricks kv-scope (Key Vault-backed secret scope).
+# AzureDatabricks is a Microsoft-managed enterprise application (global app ID
+# 2ff814a6-3304-4ab8-85cb-cd0e6f879c1d) present in every Azure tenant.
+# Without this, dbutils.secrets.get() fails with PERMISSION_DENIED.
+# =============================================================================
+echo ""
+echo "── Granting AzureDatabricks Key Vault Secrets User role ──"
+ADB_SP_APP_ID="2ff814a6-3304-4ab8-85cb-cd0e6f879c1d"
+KV_SCOPE="/subscriptions/${AZURE_SUBSCRIPTION_ID}/resourceGroups/${RESOURCE_GROUP}/providers/Microsoft.KeyVault/vaults/${KEY_VAULT_NAME}"
+
+ADB_OID=$(az ad sp show --id "$ADB_SP_APP_ID" --query id -o tsv 2>/dev/null || true)
+if [[ -z "$ADB_OID" ]]; then
+    echo "   ⚠️  AzureDatabricks SP not found — skipping"
+    echo "      (Normal if Databricks not yet provisioned — re-run after Phase 7)"
+else
+    az role assignment create \
+        --assignee-object-id    "$ADB_OID" \
+        --assignee-principal-type ServicePrincipal \
+        --role                  "Key Vault Secrets User" \
+        --scope                 "$KV_SCOPE" \
+        --output none 2>/dev/null \
+    && echo "   ✅ AzureDatabricks → Key Vault Secrets User" \
+    || echo "   ℹ️  Role already assigned — skipping"
+fi
+
+# =============================================================================
 # SQL Server credentials (ADF linked service → on-prem SQL Server)
 # =============================================================================
 echo ""

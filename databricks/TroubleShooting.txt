@@ -24,3 +24,27 @@
 ── Cluster cold start 3-5 min ───────────────────────────────────────────────
   Cause : cluster auto-terminated after idle timeout
   Fix   : Compute → cluster-dev → Edit → Auto termination → 120 min
+
+
+── dbutils.secrets.get → PERMISSION_DENIED on Key Vault ────────────────────
+  Cause : AzureDatabricks enterprise app has no read permission on the vault
+  Error : "Caller is not authorized to perform action on resource"
+  Fix   : Key Vault → Access control (IAM) → + Add role assignment
+            Role      : Key Vault Secrets User
+            Principal : search "AzureDatabricks" (Enterprise Application)
+          → Review + Assign
+  Script: keyvault-secrets_step2.sh now grants this automatically
+
+  Azure identity naming — same concept, different labels depending on screen:
+    Entra ID screen        → "Enterprise Application"
+    Key Vault IAM screen   → "Service Principal"
+    Databricks docs        → "Managed Identity"
+    Old Azure docs         → "AAD Application"
+  The AzureDatabricks app is Microsoft-managed (app ID 2ff814a6-...).
+  It exists in every Azure tenant where Databricks is deployed.
+
+Note: azure commands
+$ADB_OID = az ad sp show --id 2ff814a6-3304-4ab8-85cb-cd0e6f879c1d --query id -o tsv
+az role assignment create --assignee-object-id $ADB_OID --assignee-principal-type ServicePrincipal --role "Key Vault Secrets User" --scope "/subscriptions/dc003f8b-ecbb-4bd5-a698-e8208a2efc06/resourceGroups/rg-data-engineering-dev/providers/Microsoft.KeyVault/vaults/kv-dataengproj-dev"
+az role assignment list --scope "/subscriptions/dc003f8b-ecbb-4bd5-a698-e8208a2efc06/resourceGroups/rg-data-engineering-dev/providers/Microsoft.KeyVault/vaults/kv-dataengproj-dev" --query "[?principalName=='AzureDatabricks' || contains(roleDefinitionName,'Secrets')].{Principal:principalName, Role:roleDefinitionName}" -o table
+
