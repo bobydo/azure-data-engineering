@@ -56,8 +56,8 @@ jobs:
         uses: azure/arm-deploy@v2
         with:
           resourceGroupName: ${{ env.RESOURCE_GROUP }}
-          template: ARMTemplateForFactory.json
-          parameters: ARMTemplateParametersForFactory.json
+          template: adf-data-260524-dev/ARMTemplateForFactory.json
+          parameters: adf-data-260524-dev/ARMTemplateParametersForFactory.json
           deploymentName: adf-deploy-${{ github.run_number }}
 
       # 5. Restart triggers after deployment
