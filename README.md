@@ -161,92 +161,40 @@ Azure Data Factory and Storage Account names must be **globally unique** across 
 
 ---
 
-### Step 1: Azure Environment Setup
+### Pipeline Phases
 
-1. **Create Resource Group**: Set up a new resource group in Azure.
-2. **Provision Services**:
-   - Create an **Azure Data Factory** instance.
-   - Set up **Azure Data Lake Storage Gen2** with `bronze`, `silver`, and `gold` containers.
-   - Set up an **Azure Databricks** workspace and **Synapse Analytics** workspace.
-   - Configure **Azure Key Vault** for secret management.
+| Phase | Stage | How |
+|---|---|---|
+| **Phase 1–4** | ⚙️ Provision Azure resources + secrets | `bash infra/provision_step1.sh dev` |
+| **Phase 5** | 🔌 Connect local machine → ADF | Manual — install Self-hosted IR |
+| **Phase 6** | 📥 Load local SQL Server → Bronze | ADF Studio — linked services + pipeline |
+| **Phase 7** | ⚙️ Transform Bronze → Silver → Gold | Databricks cluster + notebooks (CI/CD deploys) |
+| **Phase 8** | 🔑 Store Databricks PAT so ADF can trigger notebooks | `bash infra/databricks-token_step4.sh dev` |
+| **Phase 9** | 🔗 Orchestrate full pipeline end-to-end | ADF Studio — add Databricks activities |
+| **Phase 10** | 🗄️ Expose Gold Delta files as SQL views | Synapse Studio — serverless SQL |
+| **Phase 11** | 📊 Visualize → KPI dashboard + scheduled refresh | Power BI Desktop |
 
-### Step 2: Data Ingestion
+> See [`RunProcess.txt`](RunProcess.txt) for the full step-by-step guide for each phase.
 
-1. **Install Self-hosted Integration Runtime**: In ADF Studio → Manage → Integration Runtimes → New → Self-hosted. Install the runtime on your local machine (the same machine running SQL Server) so ADF can reach the on-premises database.
-2. **Ingest Data with ADF**: Create a pipeline using a Lookup + ForEach pattern to dynamically copy all tables under the `Sales` schema from SQL Server to the `bronze` layer in ADLS as Parquet files, structured as `bronze/Sales/<TableName>/<TableName>.parquet`.
-
-### Step 3: Data Transformation
-
-1. **Mount Data Lake in Databricks**: Configure Databricks to access ADLS using credential passthrough, mounting the `bronze`, `silver`, and `gold` containers.
-2. **Bronze → Silver**: Use a Databricks notebook to convert all `datetime` columns to `date` type and write output in Delta format to the `silver` container.
-3. **Silver → Gold**: Use a Databricks notebook to rename columns from `PascalCase` to `UPPER_SNAKE_CASE` and write output in Delta format to the `gold` container.
-4. **Orchestrate via ADF**: Add Databricks notebook activities to the ADF pipeline (triggered after the ForEach copy step completes).
-
-### Step 4: Data Loading and Reporting
-
-1. **Load Data into Synapse**: Create a serverless SQL pool database (`gold_db`) in Synapse. Use a dynamic stored procedure + pipeline to create SQL views over the Gold Delta Lake files.
-2. **Create Power BI Dashboard**: Connect Power BI Desktop to the Synapse serverless SQL endpoint. Build visualizations:
-   - Card: Total products sold
-   - Card: Total sales revenue
-   - Donut chart: Gender split (inferred from customer title)
-   - Slicers: Filter by product category and gender
-   > ⚠️ **Power BI Desktop requires Windows.** If you're on macOS/Linux, you can use the Power BI web experience within Synapse as an alternative.
-
-### Step 5: Automation and Monitoring
-
-1. **Schedule Pipelines**: Use ADF to schedule the data pipelines to run daily at a specified time.
-2. **Monitor Pipeline Runs**: Use the monitoring tools in ADF and Synapse to ensure successful pipeline execution.
-
-#### 5a: Register Monitoring Resource Providers
-
-`microsoft.insights` and `microsoft.alertsmanagement` are required for Azure Monitor alerts. Both are registered automatically by [`infra/provision_step1.sh`](infra/provision_step1.sh) (step 0.1) alongside the core service providers.
-
-If you skipped provisioning or ran an older version of the script, register them manually:
-
-```bash
-az provider register --namespace microsoft.insights --wait
-az provider register --namespace microsoft.alertsmanagement --wait
-```
-
-Or via Portal: **Subscriptions** → your subscription → **Settings** → **Resource providers** → search `insights` → **Register**.
-![1779831489877](docs/images/1779831489877.png)
-
-#### 5b: Set Up ADF Pipeline Failure Alert
+#### ADF Pipeline Failure Alerts
 
 ADF has native alerting at no extra cost (no Log Analytics workspace needed).
 
 1. **ADF Studio** → **Monitor** → **Alerts & metrics** → **New alert rule**
-2. Fill in the form:
+2. Fill in:
 
    | Field | Value |
    |---|---|
    | Alert rule name | `ADF Pipeline Failures` |
    | Severity | `2 – Warning` |
-   | Criteria | `Failed pipeline runs metrics` → FailureType: **Select all** (UserError, SystemError, BadGateway) |
+   | Criteria | `Failed pipeline runs metrics` → FailureType: **Select all** |
    | Condition | Greater than `0` |
-   | Time aggregation | Total |
 
-3. **Configure notification** → Create new action group:
-   - Action group name: `email-me-dev`
-   - Notification type: Email/SMS/Push/Voice
-   - Enter your email address
+3. Add action group → email notification → **Create alert rule**
 
-4. Click **Create alert rule** — enabled immediately.
+> 💡 Failure types: `UserError` (bad config), `SystemError` (Azure fault), `BadGateway` (IR lost connection)
 
-> 💡 **What each failure type means:**
-> - `UserError` — bad config, wrong credentials, SQL error (your setup)
-> - `SystemError` — Azure infrastructure issue (Azure's fault)
-> - `BadGateway` — Self-hosted IR lost connection to ADF (network/IR issue)
-
-You will receive an email within ~5 minutes of any pipeline failure, with a direct link to the failed run in ADF Monitor.
-
-### Step 6: Security and Governance
-
-1. **Manage Access with Entra ID**: Create security groups in Azure Entra ID (formerly Active Directory) to manage team-level access. Assign groups to resource-level RBAC roles rather than granting access to individual users, making onboarding and offboarding easier.
-
-### Step 7: End-to-End Testing
-
-1. **Trigger and Test Pipelines**: Insert new records into the SQL database (e.g., a new row in `Sales.Product`) and verify that the entire pipeline runs successfully, updating the Power BI dashboard automatically on the next scheduled trigger.![1779831292177](docs/images/1779831292177.png)
+![1779831292177](docs/images/1779831292177.png)
 
 ## Azure Resource Provider Reference
 

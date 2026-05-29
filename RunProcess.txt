@@ -7,6 +7,7 @@
 
 ──────────────────────────────────────────────────────────────────────────────
 PHASE 5 — ADF Self-hosted Integration Runtime (Manual — UI only)
+Stage   : 🔌 Connect local machine → ADF
 ──────────────────────────────────────────────────────────────────────────────
 Purpose : Bridge between your local SQL Server and ADF in the cloud.
           Without this, ADF cannot reach on-premises data sources.
@@ -44,6 +45,7 @@ Notes:
 
 ──────────────────────────────────────────────────────────────────────────────
 PHASE 6 — ADF Linked Services + Datasets + Pipeline (ADF Studio UI)
+Stage   : 📥 Load local SQL Server → Bronze (ADF ingestion pipeline)
 ──────────────────────────────────────────────────────────────────────────────
 Purpose : Configure ADF to connect to SQL Server and ADLS, then build the
           ingestion pipeline that copies all Sales tables to bronze layer.
@@ -176,6 +178,7 @@ Purpose : Configure ADF to connect to SQL Server and ADLS, then build the
 
 ──────────────────────────────────────────────────────────────────────────────
 PHASE 7 — Databricks Cluster + Notebooks
+Stage   : ⚙️  Transform Bronze → Silver → Gold (Databricks + Delta Lake)
 ──────────────────────────────────────────────────────────────────────────────
 Purpose : Configure Databricks compute and upload transformation notebooks.
           storagemount.ipynb mounts ADLS containers so notebooks can read/write
@@ -238,18 +241,15 @@ Purpose : Configure Databricks compute and upload transformation notebooks.
 
   3. Click Create → "Secret scope created successfully" ✅
 
-─── 7.3 Upload Notebooks ────────────────────────────────────────────────────
+─── 7.3 Notebooks (CI/CD — automatic) ───────────────────────────────────────
 
-  1. Databricks → Workspace → Users → baoshenyi7768@outlook.com
-     → right-click → Create → Folder → name it: notebooks
+  All notebooks and lib files are deployed automatically by GitHub Actions
+  on every push to main (databricks-deploy.yml).
 
-  2. Upload all 4 notebooks from local databricks/ folder:
-       - storagemount.ipynb
-       - bronze to silver - extended.ipynb
-       - silver to gold - extended.ipynb
-       - validate_bronze.ipynb
+  Deployed to: /Users/baoshenyi7768@outlook.com/notebooks/
 
-     Right-click notebooks folder → Import → upload each .ipynb file ✅
+  To trigger manually: push any change to main, or
+    GitHub → Actions → Deploy Databricks Notebooks → Run workflow ✅
 
 ─── 7.4 Run storagemount Notebook ───────────────────────────────────────────
 
@@ -260,6 +260,7 @@ Purpose : Configure Databricks compute and upload transformation notebooks.
 
 ──────────────────────────────────────────────────────────────────────────────
 PHASE 8 — Databricks Token → Key Vault (Automated)
+Stage   : 🔑 Store Databricks PAT so ADF can trigger notebooks
 ──────────────────────────────────────────────────────────────────────────────
 Purpose : Generate a Databricks PAT (Personal Access Token) automatically
           and store it in Key Vault so ADF can authenticate to Databricks.
@@ -279,11 +280,12 @@ Purpose : Generate a Databricks PAT (Personal Access Token) automatically
 
   To rotate (after 90 days): re-run the same script.
 
-─── 7.5 Upload + Run validate_bronze Notebook ───────────────────────────────
+─── 7.5 Run validate_bronze Notebook ────────────────────────────────────────
 Purpose : Verify all 19 Sales tables in bronze are complete and correct
           before running any silver transformations.
+          (notebook deployed automatically by CI/CD — no upload needed)
 
-  1. Databricks → Workspace → Upload → databricks/validate_bronze.ipynb
+  1. Databricks → Workspace → notebooks → validate_bronze
   2. Attach to cluster-dev
   3. Set widget: storage_account = sadataeng260524dev
   4. Run All
@@ -312,6 +314,7 @@ Purpose : Verify all 19 Sales tables in bronze are complete and correct
 
 ──────────────────────────────────────────────────────────────────────────────
 PHASE 9 — Add Databricks Activities to ADF Pipeline
+Stage   : 🔗 Orchestrate full pipeline: Ingest → Validate → Transform (ADF)
 ──────────────────────────────────────────────────────────────────────────────
 Purpose : Extend the ADF pipeline to trigger Databricks notebooks after
           the ForEach copy completes: bronze → silver → gold.
@@ -345,6 +348,7 @@ Purpose : Extend the ADF pipeline to trigger Databricks notebooks after
 
 ──────────────────────────────────────────────────────────────────────────────
 PHASE 10 — Synapse Serverless SQL Views
+Stage   : 🗄️  Expose Gold Delta files as SQL views (Synapse serverless)
 ──────────────────────────────────────────────────────────────────────────────
 Purpose : Expose the Gold Delta Lake files as SQL views in Synapse so
           Power BI can query them with standard SQL without a dedicated pool.
@@ -427,6 +431,7 @@ Purpose : Expose the Gold Delta Lake files as SQL views in Synapse so
 
 ──────────────────────────────────────────────────────────────────────────────
 PHASE 11 — Power BI Dashboard
+Stage   : 📊 Visualize Gold data → KPI dashboard + scheduled daily refresh
 ──────────────────────────────────────────────────────────────────────────────
 Purpose : Connect Power BI Desktop to Synapse serverless SQL endpoint and
           build KPI visualizations for business stakeholders.
@@ -504,7 +509,8 @@ Purpose : Connect Power BI Desktop to Synapse serverless SQL endpoint and
 
   Phase 5  │ Install Self-hosted IR on local machine       │ Manual (UI)
   Phase 6  │ ADF Linked Services + Datasets + Pipeline     │ ADF Studio
-  Phase 7  │ Databricks cluster + notebooks + secret scope │ Databricks UI
+  Phase 7  │ Databricks cluster + secret scope             │ Databricks UI
+           │ Notebooks + lib/ deploy                       │ CI/CD (auto)
   Phase 8  │ Databricks PAT → Key Vault                   │ bash script
   Phase 9  │ Add Databricks activities to ADF pipeline     │ ADF Studio
   Phase 10 │ Synapse serverless SQL views                  │ Synapse Studio
