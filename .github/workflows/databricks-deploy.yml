@@ -23,14 +23,15 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # 2. Install Databricks CLI (legacy pip — stable workspace import syntax)
+      # 2. Install legacy Databricks CLI 0.17.7 — last version using simple PAT token auth
+      #    (0.18+ switched to unified auth which tries Azure OAuth on GitHub runners)
       - name: Install Databricks CLI
-        run: pip install databricks-cli
+        run: pip install databricks-cli==0.17.7
 
-      # 3. Configure CLI authentication
+      # 3. Configure CLI authentication — write ~/.databrickscfg directly (non-interactive)
       - name: Configure Databricks CLI
         run: |
-          databricks configure --host "$DATABRICKS_HOST" --token "$DATABRICKS_TOKEN"
+          printf "[DEFAULT]\nhost = %s\ntoken = %s\n" "$DATABRICKS_HOST" "$DATABRICKS_TOKEN" > ~/.databrickscfg
           echo "✅ Databricks CLI configured"
 
       # 4. Ensure the target workspace folder exists
