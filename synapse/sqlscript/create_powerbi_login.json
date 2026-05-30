@@ -1,0 +1,17 @@
+{
+	"name": "create_powerbi_login",
+	"properties": {
+		"content": {
+			"query": "USE MASTER;\n\nCREATE LOGIN powerbi_login WITH PASSWORD = 'PowerBI_Pass123!'\n\nUSE gold_db;\nCREATE USER powerbi_user FROM LOGIN powerbi_login;\nGRANT SELECT ON SCHEMA::dbo TO powerbi_user;\n",
+			"metadata": {
+				"language": "sql"
+			},
+			"currentConnection": {
+				"databaseName": "gold_db",
+				"poolName": "Built-in"
+			},
+			"resultLimit": 5000
+		},
+		"type": "SqlQuery"
+	}
+}
