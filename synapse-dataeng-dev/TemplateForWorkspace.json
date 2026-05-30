@@ -112,6 +112,26 @@
 				"type": "SqlQuery"
 			},
 			"dependsOn": []
+		},
+		{
+			"name": "[concat(parameters('workspaceName'), '/create_gold_views')]",
+			"type": "Microsoft.Synapse/workspaces/sqlscripts",
+			"apiVersion": "2019-06-01-preview",
+			"properties": {
+				"content": {
+					"query": "-- =============================================================================\n-- create_gold_views.sql  —  safe to re-run\n-- Before running: set \"Use database\" dropdown in Synapse Studio to gold_db\n-- GO separates each statement into its own batch (required for CREATE VIEW)\n-- =============================================================================\n\nCREATE OR ALTER VIEW Sales_CountryRegionCurrency AS\nSELECT * FROM OPENROWSET(\n    BULK 'https://sadataeng260524dev.dfs.core.windows.net/gold/Sales/CountryRegionCurrency/',\n    FORMAT = 'DELTA'\n) AS [result];\nGO\n\nCREATE OR ALTER VIEW Sales_CreditCard AS\nSELECT * FROM OPENROWSET(\n    BULK 'https://sadataeng260524dev.dfs.core.windows.net/gold/Sales/CreditCard/',\n    FORMAT = 'DELTA'\n) AS [result];\nGO\n\nCREATE OR ALTER VIEW Sales_Currency AS\nSELECT * FROM OPENROWSET(\n    BULK 'https://sadataeng260524dev.dfs.core.windows.net/gold/Sales/Currency/',\n    FORMAT = 'DELTA'\n) AS [result];\nGO\n\nCREATE OR ALTER VIEW Sales_CurrencyRate AS\nSELECT * FROM OPENROWSET(\n    BULK 'https://sadataeng260524dev.dfs.core.windows.net/gold/Sales/CurrencyRate/',\n    FORMAT = 'DELTA'\n) AS [result];\nGO\n\nCREATE OR ALTER VIEW Sales_Customer AS\nSELECT * FROM OPENROWSET(\n    BULK 'https://sadataeng260524dev.dfs.core.windows.net/gold/Sales/Customer/',\n    FORMAT = 'DELTA'\n) AS [result];\nGO\n\nCREATE OR ALTER VIEW Sales_PersonCreditCard AS\nSELECT * FROM OPENROWSET(\n    BULK 'https://sadataeng260524dev.dfs.core.windows.net/gold/Sales/PersonCreditCard/',\n    FORMAT = 'DELTA'\n) AS [result];\nGO\n\nCREATE OR ALTER VIEW Sales_SalesOrderDetail AS\nSELECT * FROM OPENROWSET(\n    BULK 'https://sadataeng260524dev.dfs.core.windows.net/gold/Sales/SalesOrderDetail/',\n    FORMAT = 'DELTA'\n) AS [result];\nGO\n\nCREATE OR ALTER VIEW Sales_SalesOrderHeader AS\nSELECT * FROM OPENROWSET(\n    BULK 'https://sadataeng260524dev.dfs.core.windows.net/gold/Sales/SalesOrderHeader/',\n    FORMAT = 'DELTA'\n) AS [result];\nGO\n\nCREATE OR ALTER VIEW Sales_SalesOrderHeaderSalesReason AS\nSELECT * FROM OPENROWSET(\n    BULK 'https://sadataeng260524dev.dfs.core.windows.net/gold/Sales/SalesOrderHeaderSalesReason/',\n    FORMAT = 'DELTA'\n) AS [result];\nGO\n\nCREATE OR ALTER VIEW Sales_SalesPerson AS\nSELECT * FROM OPENROWSET(\n    BULK 'https://sadataeng260524dev.dfs.core.windows.net/gold/Sales/SalesPerson/',\n    FORMAT = 'DELTA'\n) AS [result];\nGO\n\nCREATE OR ALTER VIEW Sales_SalesPersonQuotaHistory AS\nSELECT * FROM OPENROWSET(\n    BULK 'https://sadataeng260524dev.dfs.core.windows.net/gold/Sales/SalesPersonQuotaHistory/',\n    FORMAT = 'DELTA'\n) AS [result];\nGO\n\nCREATE OR ALTER VIEW Sales_SalesReason AS\nSELECT * FROM OPENROWSET(\n    BULK 'https://sadataeng260524dev.dfs.core.windows.net/gold/Sales/SalesReason/',\n    FORMAT = 'DELTA'\n) AS [result];\nGO\n\nCREATE OR ALTER VIEW Sales_SalesTaxRate AS\nSELECT * FROM OPENROWSET(\n    BULK 'https://sadataeng260524dev.dfs.core.windows.net/gold/Sales/SalesTaxRate/',\n    FORMAT = 'DELTA'\n) AS [result];\nGO\n\nCREATE OR ALTER VIEW Sales_SalesTerritory AS\nSELECT * FROM OPENROWSET(\n    BULK 'https://sadataeng260524dev.dfs.core.windows.net/gold/Sales/SalesTerritory/',\n    FORMAT = 'DELTA'\n) AS [result];\nGO\n\nCREATE OR ALTER VIEW Sales_SalesTerritoryHistory AS\nSELECT * FROM OPENROWSET(\n    BULK 'https://sadataeng260524dev.dfs.core.windows.net/gold/Sales/SalesTerritoryHistory/',\n    FORMAT = 'DELTA'\n) AS [result];\nGO\n\nCREATE OR ALTER VIEW Sales_ShoppingCartItem AS\nSELECT * FROM OPENROWSET(\n    BULK 'https://sadataeng260524dev.dfs.core.windows.net/gold/Sales/ShoppingCartItem/',\n    FORMAT = 'DELTA'\n) AS [result];\nGO\n\nCREATE OR ALTER VIEW Sales_SpecialOffer AS\nSELECT * FROM OPENROWSET(\n    BULK 'https://sadataeng260524dev.dfs.core.windows.net/gold/Sales/SpecialOffer/',\n    FORMAT = 'DELTA'\n) AS [result];\nGO\n\nCREATE OR ALTER VIEW Sales_SpecialOfferProduct AS\nSELECT * FROM OPENROWSET(\n    BULK 'https://sadataeng260524dev.dfs.core.windows.net/gold/Sales/SpecialOfferProduct/',\n    FORMAT = 'DELTA'\n) AS [result];\nGO\n\nCREATE OR ALTER VIEW Sales_Store AS\nSELECT * FROM OPENROWSET(\n    BULK 'https://sadataeng260524dev.dfs.core.windows.net/gold/Sales/Store/',\n    FORMAT = 'DELTA'\n) AS [result];\nGO\n\n-- Verify: list all 19 views\nSELECT TABLE_NAME FROM INFORMATION_SCHEMA.VIEWS ORDER BY TABLE_NAME;\n",
+					"metadata": {
+						"language": "sql"
+					},
+					"currentConnection": {
+						"databaseName": "gold_db",
+						"poolName": "Built-in"
+					},
+					"resultLimit": 5000
+				},
+				"type": "SqlQuery"
+			},
+			"dependsOn": []
 		}
 	]
 }
