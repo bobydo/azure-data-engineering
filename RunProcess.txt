@@ -296,6 +296,8 @@ Purpose : Verify all 19 Sales tables in bronze are complete and correct
        ✅ Numeric min/max values look reasonable
   6. Only proceed to Phase 9 if all checks pass ✅
 
+Phase 8 (the main step) — generate PAT (Personal Access Token) 
+      + store in Key Vault → automated script
 ─── 8.1 Linked Service: Azure Databricks (now that token is in Key Vault) ───
 
   1. ADF Studio → Manage → Linked Services → + New → Compute tab
@@ -304,7 +306,9 @@ Purpose : Verify all 19 Sales tables in bronze are complete and correct
        Name                  : lsdatabricks
        Azure subscription    : Azure subscription 1
        Databricks workspace  : dbw-data-engineering-dev
-       Select cluster        : New job cluster (auto-terminates after job)
+       Select cluster        : Existing interactive cluster → cluster-dev
+                             (dev: reuses running cluster, avoids quota issues)
+                             (prod: switch to New job cluster + request quota increase)
        Access token          : [from Key Vault secret: databricks-token]
        Cluster version       : Latest LTS (e.g. 13.3 LTS)
        Cluster node type     : Standard_DS3_v2
@@ -324,7 +328,7 @@ Purpose : Extend the ADF pipeline to trigger Databricks notebooks after
   2. Add activity: Databricks Notebook (after ForEach success)
        Name              : nbbronzevalidate
        Linked service    : lsdatabricks
-       Notebook path     : /Users/<your-email>/notebooks/validate_bronze
+       Notebook path     : /Users/baoshenyi7768@outlook.com/notebooks/validate_bronze
        Base parameters   : storage_account = sadataeng260524dev
        Note              : Pipeline stops here if validation fails — silver never
                            runs on bad data ✅
@@ -332,13 +336,13 @@ Purpose : Extend the ADF pipeline to trigger Databricks notebooks after
   3. Add activity: Databricks Notebook (after nbbronzevalidate success)
        Name              : nbbronzetosilver
        Linked service    : lsdatabricks
-       Notebook path     : /Users/<your-email>/notebooks/bronze_to_silver
+       Notebook path     : /Users/baoshenyi7768@outlook.com/notebooks/bronze_to_silver
        Base parameters   : (none needed — paths are hardcoded in notebook)
 
   4. Add activity: Databricks Notebook (after nbbronzetosilver success)
        Name              : nbsilvertogold
        Linked service    : lsdatabricks
-       Notebook path     : /Users/<your-email>/notebooks/silver_to_gold
+       Notebook path     : /Users/baoshenyi7768@outlook.com/notebooks/silver_to_gold
 
   4. Publish All → Debug run
      Monitor tab → all activities green ✅

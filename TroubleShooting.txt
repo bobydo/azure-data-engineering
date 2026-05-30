@@ -43,6 +43,15 @@
   The AzureDatabricks app is Microsoft-managed (app ID 2ff814a6-...).
   It exists in every Azure tenant where Databricks is deployed.
 
+── ADF Databricks activity fails: AZURE_QUOTA_EXCEEDED_EXCEPTION ────────────
+  Cause : "New job cluster" tries to spin up additional VMs; free subscription
+          has 4-core limit — already used by cluster-dev
+  Error : Cluster was terminated. Reason: AZURE_QUOTA_EXCEEDED_EXCEPTION
+  Fix   : Change lsdatabricks linked service → Select cluster →
+            Existing interactive cluster → cluster-dev
+  Note  : Dev = existing cluster (no extra quota)
+          Prod = new job cluster (request quota increase first)
+
 Note: azure commands
 $ADB_OID = az ad sp show --id 2ff814a6-3304-4ab8-85cb-cd0e6f879c1d --query id -o tsv
 az role assignment create --assignee-object-id $ADB_OID --assignee-principal-type ServicePrincipal --role "Key Vault Secrets User" --scope "/subscriptions/dc003f8b-ecbb-4bd5-a698-e8208a2efc06/resourceGroups/rg-data-engineering-dev/providers/Microsoft.KeyVault/vaults/kv-dataengproj-dev"

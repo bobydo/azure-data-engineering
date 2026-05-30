@@ -81,12 +81,13 @@ else
     [[ -n "$FROM_STEP" ]] && echo "ℹ️  Resuming from step: $FROM_STEP"
 fi
 
-# 4. Load secrets — secrets.sh is optional
-#    Priority: env var → secrets.sh → interactive prompt
-#    CI/CD: set SYNAPSE_SQL_PASSWORD as a GitHub Secret env var (no secrets.sh needed)
-if [[ -f "$SCRIPT_DIR/secrets.sh" ]]; then
-    source "$SCRIPT_DIR/secrets.sh"
-    echo "ℹ️  Loaded secrets from infra/secrets.sh"
+# 4. Load secrets — .env is optional
+#    Priority: env var → .env → interactive prompt
+#    CI/CD: set SYNAPSE_SQL_PASSWORD as a GitHub Secret env var (no .env needed)
+REPO_ROOT="$(dirname "$SCRIPT_DIR")"
+if [[ -f "$REPO_ROOT/.env" ]]; then
+    source "$REPO_ROOT/.env"
+    echo "ℹ️  Loaded secrets from .env"
 fi
 
 if [[ -z "${SYNAPSE_SQL_PASSWORD:-}" ]]; then

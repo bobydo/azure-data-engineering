@@ -41,11 +41,12 @@ source "$SCRIPT_DIR/config.${TARGET_ENV}.sh"
 echo "ℹ️  Environment : $TARGET_ENV"
 echo "ℹ️  Key Vault   : $KEY_VAULT_NAME"
 
-# 3. Load secrets — secrets.sh is optional
-#    Priority: env var → secrets.sh → interactive prompt
-if [[ -f "$SCRIPT_DIR/secrets.sh" ]]; then
-    source "$SCRIPT_DIR/secrets.sh"
-    echo "ℹ️  Loaded secrets from infra/secrets.sh"
+# 3. Load secrets — .env is optional
+#    Priority: env var → .env → interactive prompt
+REPO_ROOT="$(dirname "$SCRIPT_DIR")"
+if [[ -f "$REPO_ROOT/.env" ]]; then
+    source "$REPO_ROOT/.env"
+    echo "ℹ️  Loaded secrets from .env"
 fi
 
 if [[ -z "${SQL_USERNAME:-}" ]]; then

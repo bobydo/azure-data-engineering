@@ -224,7 +224,7 @@ sql/data/
 # Local secrets — never commit
 .env
 infra/.env
-infra/secrets.sh
+infra/secrets.sh        # legacy — replaced by root .env
 
 # Integration Runtime installer — large binary, no need to track
 docs/IR_*.exe
