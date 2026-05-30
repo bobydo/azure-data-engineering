@@ -1,287 +1,230 @@
-# Azure End-to-End Data Engineering Real-Time Project
+# Azure End-to-End Data Engineering Pipeline
 
-## Project Overview
+AdventureWorks on-premises SQL Server → ADF ingestion → Medallion Architecture (Bronze / Silver / Gold) → Synapse serverless SQL → Power BI KPI dashboard.
 
-This project addresses a critical business need by building a comprehensive data pipeline on Azure. The goal is to extract customer and sales data from an on-premises SQL database, transform it in the cloud, and generate actionable insights through a Power BI dashboard. The dashboard will highlight key performance indicators (KPIs) related to gender distribution and product category sales, allowing stakeholders to filter and analyze data by date, product category, and gender.
+---
 
-## Architecture
+## Summary
+
+This project builds a production-grade Azure data pipeline from scratch. Sales and customer data from an on-premises SQL Server (AdventureWorks, 19 Sales tables) is ingested into Azure Data Lake Storage Gen2 via Azure Data Factory, then transformed through three quality layers using Azure Databricks and Delta Lake, and finally exposed as serverless SQL views in Azure Synapse Analytics for a Power BI KPI dashboard.
+
+**What was built:**
+- ADF ingestion pipeline with a Lookup + ForEach + Copy pattern — dynamically copies all Sales tables to Bronze in parallel
+- Databricks transformation notebooks (validate → bronze→silver → silver→gold) triggered by ADF and deployed via CI/CD
+- Synapse serverless SQL views over Gold Delta files — no dedicated pool, no extra cost
+- Power BI dashboard with gender split, revenue by category, and date/category/gender slicers
+- Daily schedule trigger so the full pipeline runs automatically every morning
+
+**Enterprise patterns applied:**
+- **Medallion Architecture** — Bronze (raw), Silver (cleansed Delta), Gold (analytics-ready Delta)
+- **Zero credentials in code** — all secrets in Azure Key Vault, fetched at runtime via `dbutils.secrets.get()` and ADF Key Vault references
+- **Service Principal OAuth2** — Databricks authenticates to ADLS Gen2 with short-lived tokens, not storage keys
+- **CI/CD** — GitHub Actions deploys Databricks notebooks on every push to `main`; ADF compiles source JSON to ARM templates on the `adf_publish` branch
+- **Infrastructure as Code** — idempotent bash scripts provision all Azure resources across dev / UAT / prod from a single command
+
+---
+
+## Pipeline Flow
 
 ```
-On-Premises SQL Server (AdventureWorksLT2019)
-        │
-        │  Azure Data Factory (Self-hosted Integration Runtime)
-        ▼
-ADLS Gen2 – Bronze Layer (raw Parquet)
-        │
-        │  Azure Databricks (datetime cleanup)
-        ▼
-ADLS Gen2 – Silver Layer (cleansed Delta)
-        │
-        │  Azure Databricks (column rename: PascalCase → UPPER_SNAKE_CASE)
-        ▼
-ADLS Gen2 – Gold Layer (analytics-ready Delta)
-        │
-        │  Azure Synapse Analytics (serverless SQL views)
-        ▼
-Power BI Dashboard (gender split, revenue, product KPIs)
+On-Premises SQL Server
+  │  ADF + Self-hosted Integration Runtime
+  ▼
+ADLS Gen2 — Bronze Layer   (raw Parquet, schema preserved)
+  │  Databricks: validate row counts, nulls, min/max
+  │  Databricks: cast datetime → date string
+  ▼
+ADLS Gen2 — Silver Layer   (cleansed Delta Lake)
+  │  Databricks: rename columns PascalCase → snake_case
+  ▼
+ADLS Gen2 — Gold Layer     (analytics-ready Delta Lake)
+  │  Synapse: serverless SQL views (OPENROWSET over Delta files)
+  ▼
+Power BI Dashboard         (gender split, revenue by category, slicers)
 ```
 
-## Business Requirements
+**Daily trigger:** ADF fires the full pipeline at 8:00 AM MST. Total runtime ~9 min.
 
-The business has identified a gap in understanding customer demographics—specifically gender distribution—and how it influences product purchases. The key requirements include:
+---
 
-1. **Sales by Gender and Product Category**: A dashboard showing the total products sold, total sales revenue, and a gender split among customers.
-2. **Data Filtering**: Ability to filter the data by product category, gender, and date.
-3. **User-Friendly Interface**: Stakeholders should have access to an easy-to-use interface for making queries.
+## Folder Structure
 
-## Solution Overview
+```
+azure-data-engineering/
+│
+├── adf/                        # ADF Studio JSON (auto-managed by ADF Git integration)
+│   ├── pipeline/               # Pipeline definitions
+│   ├── dataset/                # Dataset definitions
+│   ├── linkedService/          # Linked service definitions (no secrets — resource refs only)
+│   ├── trigger/                # Schedule trigger (Triggerdaily)
+│   ├── integrationRuntime/     # Self-hosted IR definition
+│   └── factory/                # Factory-level settings
+│
+├── databricks/                 # Databricks notebooks (deployed to workspace via CI/CD)
+│   ├── autoload.ipynb          # Shared library loader — %run this first in every notebook
+│   ├── validate_bronze.ipynb   # Quality gate: row counts, nulls, min/max
+│   ├── bronze_to_silver.ipynb  # Transform: Parquet → Delta Lake, datetime casts
+│   ├── silver_to_gold.ipynb    # Transform: Delta Lake, column rename
+│   ├── storagemount.ipynb      # OAuth2 config + path setup (run once)
+│   └── lib/bobydo/             # Shared Python library source (AdlsAuth, setup_logger)
+│
+├── infra/                      # Azure provisioning scripts (bash, idempotent)
+│   ├── provision_step1.sh      # Phase 1–4: provision all Azure resources
+│   ├── keyvault-secrets_step2.sh  # Store SQL credentials in Key Vault
+│   ├── service-principal_step3.sh # Create SP + assign ADLS role
+│   ├── databricks-token_step4.sh  # Generate Databricks PAT → Key Vault
+│   ├── config.sh               # Shared config (subscription, suffix)
+│   ├── config.dev.sh           # Dev resource names
+│   └── cleanup.sh              # Remove all Azure resources
+│
+├── sql/
+│   ├── setup/                  # Run once: restore DB, create login, grant access
+│   └── queries/                # Reference queries + Synapse stored procedure
+│
+├── docs/
+│   ├── images/                 # Screenshots (referenced below)
+│   ├── Interview.md            # Interview preparation guide
+│   └── LocalToBronzeVerification.md
+│
+├── .github/workflows/
+│   └── databricks-deploy.yml   # CI/CD: deploy notebooks on push to main
+│
+├── RunProcess.txt              # Step-by-step guide (Phase 5 → 11)
+├── TroubleShooting.txt         # Known issues and fixes
+└── .env                        # Local secrets — gitignored, never commit
+```
 
-To meet these requirements, the solution is broken down into the following components:
+---
 
-1. **Data Ingestion**:
-    - Extract customer and sales data from an on-premises SQL database.
-    - Load the data into Azure Data Lake Storage (ADLS) using Azure Data Factory (ADF).
-    - A **Self-hosted Integration Runtime** is installed on the on-premises machine to bridge the on-prem SQL Server and the ADF cloud service.
+## Pipeline Phases
 
-2. **Data Transformation**:
-    - Use Azure Databricks to clean and transform the data.
-    - Organize the data into Bronze, Silver, and Gold layers for raw, cleansed, and aggregated data respectively.
+| Phase | What | How |
+|---|---|---|
+| 1–4 | Provision all Azure resources + store secrets | `bash infra/provision_step1.sh dev` |
+| 5 | Install Self-hosted Integration Runtime | ADF Studio → Manage → Integration Runtimes |
+| 6 | Build ADF linked services, datasets, pipeline | ADF Studio |
+| 7 | Databricks cluster + notebooks + secret scope | Databricks UI + CI/CD auto-deploys notebooks |
+| 8 | Generate Databricks PAT → Key Vault | `bash infra/databricks-token_step4.sh dev` |
+| 9 | Add Databricks Notebook activities to ADF pipeline | ADF Studio |
+| 10 | Create Synapse serverless SQL views over Gold | Synapse Studio |
+| 11 | Build Power BI dashboard + schedule daily refresh | Power BI Desktop |
 
-3. **Data Loading and Reporting**:
-    - Load the transformed data into Azure Synapse Analytics.
-    - Build a Power BI dashboard to visualize the data, allowing stakeholders to explore sales and demographic insights.
+Full step-by-step: [`RunProcess.txt`](RunProcess.txt)
 
-4. **Automation**:
-    - Schedule the pipeline to run daily, ensuring that the data and reports are always up-to-date.
+---
 
-## Technology Stack
+## CI/CD
 
-- **Azure Data Factory (ADF)**: For orchestrating data movement and transformation, including a Self-hosted Integration Runtime for on-premises connectivity.
-- **Azure Data Lake Storage Gen2 (ADLS)**: For storing raw and processed data across Bronze, Silver, and Gold layers.
-- **Azure Databricks**: For data transformation and processing using Delta Lake format.
-- **Azure Synapse Analytics**: For data warehousing and serverless SQL-based analytics.
-- **Power BI Desktop** *(Windows only)*: For data visualization and reporting.
-- **Azure Key Vault**: For securely managing credentials and secrets.
-- **Azure Entra ID** *(formerly Active Directory)*: For identity management and role-based access control (RBAC).
-- **SQL Server Express + SSMS (On-Premises)**: Source of customer and sales data (AdventureWorksLT2019).
-- **Azure CLI**: For scripted, idempotent resource provisioning across dev / UAT / prod environments.
+### Databricks Notebooks — GitHub Actions
 
-## Azure Cloud Shell — Your Browser-Based Deployment Machine
+Every push to `main` automatically deploys all notebooks and the shared library to the Databricks workspace. No manual upload needed.
 
-Azure Cloud Shell (`portal.azure.com` → click the **`>_`** icon in the top bar) is a fully managed Bash/PowerShell environment in your browser. It comes with `az`, `git`, `python3`, and other tools pre-installed and is **automatically authenticated** to your Azure subscription — no login required.
+**Workflow:** [`.github/workflows/databricks-deploy.yml`](.github/workflows/databricks-deploy.yml)
 
-Use it to clone this repo and run any infra or utility script without needing a local Azure CLI setup:
+What it does:
+1. Uploads all `databricks/*.ipynb` notebooks to `/Users/baoshenyi7768@outlook.com/notebooks/`
+2. Uploads `databricks/lib/**` to the same workspace folder
+3. Uses `DATABRICKS_HOST` and `DATABRICKS_TOKEN` from GitHub Secrets
+
+To trigger manually: GitHub → Actions → **Deploy Databricks Notebooks** → Run workflow.
+
+### ADF Pipeline — `adf_publish` Branch
+
+ADF uses two branches with different roles:
+
+| Branch | Written by | Contains | Purpose |
+|---|---|---|---|
+| `main` | You (VS Code / ADF Studio saves) | Source JSON (`adf/pipeline/`, `adf/dataset/`, etc.) | Development, code review, history |
+| `adf_publish` | ADF Studio (on every Publish click) | Compiled ARM template | Deployment to Azure |
+
+**You never push to `adf_publish` directly.** When you click **Publish All** in ADF Studio, it compiles the source JSON into an ARM template and pushes it to `adf_publish` automatically. GitHub Actions can then read that ARM template and deploy it to UAT/prod.
+
+To configure ADF Git integration: ADF Studio → **Manage** → **Git configuration**
+- Repository type: GitHub
+- Collaboration branch: `main`
+- Root folder: `adf`
+
+---
+
+## Quick Start
 
 ```bash
-# Clone the repo
+# Clone
 git clone https://github.com/bobydo/azure-data-engineering.git
 cd azure-data-engineering
 
-# Show all Key Vault secret names and values
-bash infra/show-secrets.sh
+# Fill in credentials (never commit this file)
+cp .env.example .env
+# edit .env with your SQL password and service principal values
 
-# Provision all Azure resources (dev environment)
+# Provision all Azure resources (dev)
 bash infra/provision_step1.sh dev
 
-# Store credentials in Key Vault
+# Store secrets in Key Vault
 bash infra/keyvault-secrets_step2.sh dev
 
 # Create service principal + assign ADLS role
 bash infra/service-principal_step3.sh dev
 
-# Verify all resources are healthy
-bash infra/check-resources_step5.sh dev
+# (After Phase 7) Generate Databricks PAT
+bash infra/databricks-token_step4.sh dev
 ```
 
-> **Tip:** Cloud Shell is ideal for enterprise environments where you want all deployments to run from Azure — not from a developer's local machine. It also has persistent storage (5 GB Azure Files mount) so files survive between sessions.
-
----
-
-## Infrastructure as Code
-
-Azure resources are provisioned via [`infra/provision_step1.sh`](infra/provision_step1.sh) using the Azure CLI. The script is **idempotent** — safe to re-run at any time; existing resources are detected and skipped automatically.
-
-The environment is passed as a parameter, keeping dev / UAT / prod fully isolated with separate resource groups and uniquely named resources:
-
-```bash
-bash infra/provision_step1.sh dev    # → rg-data-engineering-dev,  *-dev resources
-bash infra/provision_step1.sh uat    # → rg-data-engineering-uat,  *-uat resources
-bash infra/provision_step1.sh prod   # → rg-data-engineering-prod, *-prod resources
-```
-
-Shared config lives in [`infra/config.sh`](infra/config.sh); per-environment overrides in `infra/config.{env}.sh`. Secrets are kept out of source control via `infra/secrets.sh` (gitignored locally) or GitHub Secrets in CI/CD. Databricks notebooks accept `storage_account` as a widget parameter so the same notebook logic runs across all environments — only the target storage account changes.
-
-### Globally-unique resource names
-
-Azure Data Factory and Storage Account names must be **globally unique** across all Azure tenants. A fixed date suffix (`UNIQUE_SUFFIX` in [`infra/config.sh`](infra/config.sh)) is appended to avoid collisions and the ~30-minute name reservation Azure holds after a resource is deleted.
-
-> **Current suffix: `260524`** (set 2026-05-24 — update manually in `config.sh` only if you need to recreate resources with a fresh name)
-
-| Resource | dev | uat | prod |
-|---|---|---|---|
-| Storage Account | `sadataeng260524dev` | `sadataeng260524uat` | `sadataeng260524prod` |
-| Azure Data Factory | `adf-data-260524-dev` | `adf-data-260524-uat` | `adf-data-260524-prod` |
-
----
-
-## Setup Instructions
-
-### Prerequisites
-
-- An Azure account with sufficient credits (new accounts get $200 free for 30 days).
-- A Windows machine for the Self-hosted Integration Runtime and Power BI Desktop.
-- SQL Server Express installed locally ([download here](https://www.microsoft.com/en-us/sql-server/sql-server-downloads)).
-- SQL Server Management Studio (SSMS) installed ([download here](https://learn.microsoft.com/en-us/sql/ssms/download-sql-server-management-studio-ssms)).
-- **AdventureWorksLT2019** sample database restored to your local SQL Server (see Step 0 below).
-
----
-
-### Step 0: Restore AdventureWorksLT2019 (On-Premises Database)
-
-1. Download `AdventureWorksLT2019.bak` from the [Microsoft SQL Server Samples releases](https://github.com/Microsoft/sql-server-samples/releases/tag/adventureworks).
-2. Copy the `.bak` file to your SQL Server backup directory, e.g.:
-   ```
-   C:\Program Files\Microsoft SQL Server\MSSQL15.SQLEXPRESS\MSSQL\Backup\
-   ```
-3. In SSMS, right-click **Databases** → **Restore Database…** → **Device** → browse to the `.bak` file, or run:
-   ```sql
-   RESTORE DATABASE AdventureWorksLT2019
-   FROM DISK = 'C:\Program Files\Microsoft SQL Server\MSSQL15.SQLEXPRESS\MSSQL\Backup\AdventureWorksLT2019.bak'
-   WITH MOVE 'AdventureWorksLT2019_Data' TO 'C:\Program Files\Microsoft SQL Server\MSSQL15.SQLEXPRESS\MSSQL\DATA\AdventureWorksLT2019.mdf',
-        MOVE 'AdventureWorksLT2019_Log'  TO 'C:\Program Files\Microsoft SQL Server\MSSQL15.SQLEXPRESS\MSSQL\DATA\AdventureWorksLT2019.ldf',
-        REPLACE;
-   ```
-4. In SSMS, right-click the server → **Properties** → **Security** → set Server Authentication to **SQL Server and Windows Authentication mode**. Restart the SQL Server service via SQL Server Configuration Manager.
-5. Create a dedicated SQL login and grant it access to the Sales schema:
-   ```sql
-   USE AdventureWorksLT2019;
-   GRANT SELECT ON SCHEMA::Sales TO <your_login>;
-   ```
-6. Store the login credentials as secrets in Azure Key Vault (used by ADF linked service).
-
----
-
-### Pipeline Phases
-
-| Phase | Stage | How |
-|---|---|---|
-| **Phase 1–4** | ⚙️ Provision Azure resources + secrets | `bash infra/provision_step1.sh dev` |
-| **Phase 5** | 🔌 Connect local machine → ADF | Manual — install Self-hosted IR |
-| **Phase 6** | 📥 Load local SQL Server → Bronze | ADF Studio — linked services + pipeline |
-| **Phase 7** | ⚙️ Transform Bronze → Silver → Gold | Databricks cluster + notebooks (CI/CD deploys) |
-| **Phase 8** | 🔑 Store Databricks PAT so ADF can trigger notebooks | `bash infra/databricks-token_step4.sh dev` |
-| **Phase 9** | 🔗 Orchestrate full pipeline end-to-end | ADF Studio — add Databricks activities |
-| **Phase 10** | 🗄️ Expose Gold Delta files as SQL views | Synapse Studio — serverless SQL |
-| **Phase 11** | 📊 Visualize → KPI dashboard + scheduled refresh | Power BI Desktop |
-
-> See [`RunProcess.txt`](RunProcess.txt) for the full step-by-step guide for each phase.
-
-#### ADF Pipeline Failure Alerts
-
-ADF has native alerting at no extra cost (no Log Analytics workspace needed).
-
-1. **ADF Studio** → **Monitor** → **Alerts & metrics** → **New alert rule**
-2. Fill in:
-
-   | Field | Value |
-   |---|---|
-   | Alert rule name | `ADF Pipeline Failures` |
-   | Severity | `2 – Warning` |
-   | Criteria | `Failed pipeline runs metrics` → FailureType: **Select all** |
-   | Condition | Greater than `0` |
-
-3. Add action group → email notification → **Create alert rule**
-
-> 💡 Failure types: `UserError` (bad config), `SystemError` (Azure fault), `BadGateway` (IR lost connection)
-
-![1779831292177](docs/images/1779831292177.png)
-
-## Azure Resource Provider Reference
-
-Every Azure service requires its namespace to be registered on the subscription before first use.
-The Portal registers providers silently; CLI scripts must do it explicitly.
-Re-running `az provider register` on an already-registered namespace is safe (idempotent).
-
-### ETL / Data Engineering Stack
-
-```bash
-# ── Core pipeline ──────────────────────────────────────────
-az provider register --namespace Microsoft.Storage          # ADLS Gen2 / Blob
-az provider register --namespace Microsoft.DataFactory      # ADF pipelines
-az provider register --namespace Microsoft.Databricks       # Spark transformation
-az provider register --namespace Microsoft.Synapse          # Serverless SQL / DW
-az provider register --namespace Microsoft.Sql              # Synapse SQL dependency
-az provider register --namespace Microsoft.KeyVault         # Secret management
-# ── Monitoring ─────────────────────────────────────────────
-az provider register --namespace microsoft.insights         # Azure Monitor / alerts
-az provider register --namespace microsoft.alertsmanagement # Alert rules
-# ── Optional: streaming ingestion ──────────────────────────
-az provider register --namespace Microsoft.EventHub         # Kafka-compatible ingestion
-az provider register --namespace Microsoft.StreamAnalytics  # Real-time processing
-```
-
-### Web App Stack
-
-```bash
-# ── Compute & hosting ──────────────────────────────────────
-az provider register --namespace Microsoft.Web              # App Service / Functions
-az provider register --namespace Microsoft.ContainerRegistry # Docker image registry
-az provider register --namespace Microsoft.ContainerService # AKS (Kubernetes)
-# ── Data ───────────────────────────────────────────────────
-az provider register --namespace Microsoft.Sql              # Azure SQL Database
-az provider register --namespace Microsoft.DocumentDB       # Cosmos DB
-az provider register --namespace Microsoft.Storage          # Blob / static files
-az provider register --namespace Microsoft.Cache            # Redis cache
-# ── Messaging ──────────────────────────────────────────────
-az provider register --namespace Microsoft.ServiceBus       # Queue / pub-sub
-az provider register --namespace Microsoft.EventGrid        # Event-driven triggers
-# ── Networking ─────────────────────────────────────────────
-az provider register --namespace Microsoft.Network          # VNet, Load Balancer
-az provider register --namespace Microsoft.Cdn              # CDN for static assets
-# ── Security & secrets ─────────────────────────────────────
-az provider register --namespace Microsoft.KeyVault         # Secret management
-# ── Monitoring ─────────────────────────────────────────────
-az provider register --namespace microsoft.insights         # App Insights + alerts
-az provider register --namespace microsoft.alertsmanagement # Alert rules
-```
-
-> **Tip:** `Microsoft.KeyVault`, `microsoft.insights`, and `microsoft.alertsmanagement` are universal — register them for any project type.
->
-> To check what's already registered: `az provider list --query "[?registrationState=='Registered'].namespace" -o table`
+> Azure Cloud Shell (`portal.azure.com` → `>_`) is recommended: pre-authenticated, no local CLI setup needed.
 
 ---
 
 ## Screenshots
 
-### Phase 5 — ADF Self-Hosted Integration Runtime
-<!-- TODO: add screenshot -->
+### Azure Resources — Resource Group Overview
+<!-- TODO: Portal → rg-data-engineering-dev → overview showing all 6 resources -->
+
+### Phase 5 — Self-Hosted Integration Runtime Installed
+![IR Installed](docs/images/IntegrationRuntimeInstalled.png)
 
 ### Phase 6 — ADF Linked Services
-#### SQL Server Linked Service (`lssqlserveronprem`)
-<!-- TODO: add screenshot -->
+#### SQL Server Linked Service
+<!-- TODO: ADF Studio → Manage → Linked Services → lssqlserveronprem -->
 
-#### ADLS Gen2 Linked Service (`lsadlsgen2`)
-<!-- TODO: add screenshot -->
+#### ADLS Gen2 Linked Service
+<!-- TODO: ADF Studio → Manage → Linked Services → lsadlsgen2 (Service Principal auth) -->
 
-#### Databricks Linked Service (`lsdatabricks`)
-<!-- TODO: add screenshot -->
+#### Databricks Linked Service
+<!-- TODO: ADF Studio → Manage → Linked Services → lsdatabricks (Existing cluster) -->
 
 ### Phase 6 — ADF Datasets
-#### SQL Server Source Dataset (`ds_sqlserver_source`)
-![1779901354821](docs/images/1779901354821.png)
+#### SQL Server Source Dataset
+![SQL Server Dataset](docs/images/1779901354821.png)
 
-#### ADLS Bronze Parquet Sink Dataset (`ds_adls_bronze_parquet`)
-<!-- TODO: add screenshot -->
+#### ADLS Bronze Parquet Sink Dataset
+<!-- TODO: ADF Studio → Author → Datasets → ds_adls_bronze_parquet -->
 
-### Phase 6 — ADF Pipeline (`pl-ingestion-sqlserver-to-bronze`)
-<!-- TODO: add screenshot -->
+### Phase 6 — ADF Pipeline Design
+<!-- TODO: ADF Studio → pl-ingestion-sqlserver-to-bronze canvas (Lookup → ForEach → 3 Notebooks) -->
 
-### Phase 7 — Databricks Notebooks
-<!-- TODO: add screenshot -->
+### Phase 7 — Databricks Workspace (Notebooks Deployed)
+<!-- TODO: Databricks → Workspace → Users → baoshenyi7768@outlook.com → notebooks folder -->
 
-### Phase 9 — End-to-End Pipeline Run
-<!-- TODO: add screenshot -->
+### Phase 7 — Databricks Cluster Running
+<!-- TODO: Databricks → Compute → cluster-dev → Running status -->
 
-## Conclusion
+### Phase 8 — Key Vault Secrets
+<!-- TODO: Portal → kv-dataengproj-dev → Secrets (show all 5 secret names, not values) -->
 
-This project provides a robust end-to-end solution for understanding customer demographics and their impact on sales. The automated data pipeline ensures that stakeholders always have access to the most current and actionable insights.
+### Phase 9 — Full Pipeline Run Succeeded
+<!-- TODO: ADF → Monitor → Pipeline run showing all 5 activities green (copy + 3 notebooks) -->
+
+### Phase 9 — ADF Daily Trigger
+<!-- TODO: ADF Studio → Manage → Triggers → Triggerdaily → Started status -->
+
+### Phase 10 — Bronze / Silver / Gold in ADLS
+<!-- TODO: Portal → sadataeng260524dev → Storage browser → bronze, silver, gold containers -->
+
+### Phase 10 — Synapse SQL Views
+<!-- TODO: Synapse Studio → Data → gold_db → Views list -->
+
+### Phase 11 — Power BI Dashboard
+<!-- TODO: Power BI Desktop showing final KPI dashboard (gender split + revenue by category) -->
+
+### ADF Pipeline Failure Alert
+![ADF Alert Rule](docs/images/1779831292177.png)
