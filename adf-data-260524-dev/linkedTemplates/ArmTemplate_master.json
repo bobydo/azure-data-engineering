@@ -11,6 +11,10 @@
 			"type": "secureString",
 			"metadata": "Secure string for 'servicePrincipalCredential' of 'lsadlsgen2'"
 		},
+		"lsdatabricks_accessToken": {
+			"type": "secureString",
+			"metadata": "Secure string for 'accessToken' of 'lsdatabricks'"
+		},
 		"lssqlserveronprem_password": {
 			"type": "secureString",
 			"metadata": "Secure string for 'password' of 'lssqlserveronprem'"
@@ -68,6 +72,9 @@
 					},
 					"lsadlsgen2_servicePrincipalCredential": {
 						"value": "[parameters('lsadlsgen2_servicePrincipalCredential')]"
+					},
+					"lsdatabricks_accessToken": {
+						"value": "[parameters('lsdatabricks_accessToken')]"
 					},
 					"lssqlserveronprem_password": {
 						"value": "[parameters('lssqlserveronprem_password')]"

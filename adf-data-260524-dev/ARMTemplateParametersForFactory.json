@@ -8,6 +8,9 @@
 		"lsadlsgen2_servicePrincipalCredential": {
 			"value": ""
 		},
+		"lsdatabricks_accessToken": {
+			"value": ""
+		},
 		"lssqlserveronprem_password": {
 			"value": ""
 		},

@@ -11,6 +11,10 @@
 			"type": "secureString",
 			"metadata": "Secure string for 'servicePrincipalCredential' of 'lsadlsgen2'"
 		},
+		"lsdatabricks_accessToken": {
+			"type": "secureString",
+			"metadata": "Secure string for 'accessToken' of 'lsdatabricks'"
+		},
 		"lssqlserveronprem_password": {
 			"type": "secureString",
 			"metadata": "Secure string for 'password' of 'lssqlserveronprem'"
@@ -61,6 +65,28 @@
 						"type": "SecureString",
 						"value": "[parameters('lsadlsgen2_servicePrincipalCredential')]"
 					}
+				}
+			},
+			"dependsOn": []
+		},
+		{
+			"name": "[concat(parameters('factoryName'), '/lsdatabricks')]",
+			"type": "Microsoft.DataFactory/factories/linkedServices",
+			"apiVersion": "2018-06-01",
+			"properties": {
+				"annotations": [],
+				"type": "AzureDatabricks",
+				"typeProperties": {
+					"domain": "https://adb-7405614242013965.5.azuredatabricks.net",
+					"accessToken": {
+						"type": "SecureString",
+						"value": "[parameters('lsdatabricks_accessToken')]"
+					},
+					"newClusterNodeType": "Standard_DS3_v2",
+					"newClusterNumOfWorker": "1",
+					"newClusterVersion": "13.3.x-scala2.12",
+					"clusterOption": "Fixed",
+					"newClusterInitScripts": []
 				}
 			},
 			"dependsOn": []
@@ -212,7 +238,10 @@
 							"dataset": {
 								"referenceName": "ds_sqlserver_source",
 								"type": "DatasetReference",
-								"parameters": {}
+								"parameters": {
+									"tableName": "Sales",
+									"schemaName": "Customer"
+								}
 							},
 							"firstRowOnly": false
 						}
@@ -300,6 +329,88 @@
 								}
 							]
 						}
+					},
+					{
+						"name": "nbbronzevalidate",
+						"description": "Pipeline stops here if validation fails — silver never runs on bad data",
+						"type": "DatabricksNotebook",
+						"dependsOn": [
+							{
+								"activity": "foreachtables",
+								"dependencyConditions": [
+									"Succeeded"
+								]
+							}
+						],
+						"policy": {
+							"timeout": "0.12:00:00",
+							"retry": 0,
+							"retryIntervalInSeconds": 30,
+							"secureOutput": false,
+							"secureInput": false
+						},
+						"userProperties": [],
+						"typeProperties": {
+							"notebookPath": "/Users/baoshenyi7768@outlook.com/notebooks/validate_bronze"
+						},
+						"linkedServiceName": {
+							"referenceName": "lsdatabricks",
+							"type": "LinkedServiceReference"
+						}
+					},
+					{
+						"name": "nbbronzetosilver",
+						"type": "DatabricksNotebook",
+						"dependsOn": [
+							{
+								"activity": "nbbronzevalidate",
+								"dependencyConditions": [
+									"Succeeded"
+								]
+							}
+						],
+						"policy": {
+							"timeout": "0.12:00:00",
+							"retry": 0,
+							"retryIntervalInSeconds": 30,
+							"secureOutput": false,
+							"secureInput": false
+						},
+						"userProperties": [],
+						"typeProperties": {
+							"notebookPath": "/Users/baoshenyi7768@outlook.com/notebooks/bronze_to_silver"
+						},
+						"linkedServiceName": {
+							"referenceName": "lsdatabricks",
+							"type": "LinkedServiceReference"
+						}
+					},
+					{
+						"name": "nbsilvertogold",
+						"type": "DatabricksNotebook",
+						"dependsOn": [
+							{
+								"activity": "nbbronzetosilver",
+								"dependencyConditions": [
+									"Succeeded"
+								]
+							}
+						],
+						"policy": {
+							"timeout": "0.12:00:00",
+							"retry": 0,
+							"retryIntervalInSeconds": 30,
+							"secureOutput": false,
+							"secureInput": false
+						},
+						"userProperties": [],
+						"typeProperties": {
+							"notebookPath": "/Users/baoshenyi7768@outlook.com/notebooks/silver_to_gold"
+						},
+						"linkedServiceName": {
+							"referenceName": "lsdatabricks",
+							"type": "LinkedServiceReference"
+						}
 					}
 				],
 				"policy": {
@@ -310,6 +421,7 @@
 			},
 			"dependsOn": [
 				"[concat(variables('factoryId'), '/datasets/ds_sqlserver_source')]",
+				"[concat(variables('factoryId'), '/linkedServices/lsdatabricks')]",
 				"[concat(variables('factoryId'), '/datasets/ds_adls_bronze_parquet')]"
 			]
 		},
