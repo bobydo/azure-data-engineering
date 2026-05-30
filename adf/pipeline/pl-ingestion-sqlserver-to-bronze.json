@@ -23,7 +23,11 @@
 					},
 					"dataset": {
 						"referenceName": "ds_sqlserver_source",
-						"type": "DatasetReference"
+						"type": "DatasetReference",
+						"parameters": {
+							"tableName": "Sales",
+							"schemaName": "Customer"
+						}
 					},
 					"firstRowOnly": false
 				}
@@ -110,6 +114,88 @@
 							]
 						}
 					]
+				}
+			},
+			{
+				"name": "nbbronzevalidate",
+				"description": "Pipeline stops here if validation fails — silver never runs on bad data",
+				"type": "DatabricksNotebook",
+				"dependsOn": [
+					{
+						"activity": "foreachtables",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"notebookPath": "/Users/baoshenyi7768@outlook.com/notebooks/validate_bronze"
+				},
+				"linkedServiceName": {
+					"referenceName": "lsdatabricks",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "nbbronzetosilver",
+				"type": "DatabricksNotebook",
+				"dependsOn": [
+					{
+						"activity": "nbbronzevalidate",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"notebookPath": "/Users/baoshenyi7768@outlook.com/notebooks/bronze_to_silver"
+				},
+				"linkedServiceName": {
+					"referenceName": "lsdatabricks",
+					"type": "LinkedServiceReference"
+				}
+			},
+			{
+				"name": "nbsilvertogold",
+				"type": "DatabricksNotebook",
+				"dependsOn": [
+					{
+						"activity": "nbbronzetosilver",
+						"dependencyConditions": [
+							"Succeeded"
+						]
+					}
+				],
+				"policy": {
+					"timeout": "0.12:00:00",
+					"retry": 0,
+					"retryIntervalInSeconds": 30,
+					"secureOutput": false,
+					"secureInput": false
+				},
+				"userProperties": [],
+				"typeProperties": {
+					"notebookPath": "/Users/baoshenyi7768@outlook.com/notebooks/silver_to_gold"
+				},
+				"linkedServiceName": {
+					"referenceName": "lsdatabricks",
+					"type": "LinkedServiceReference"
 				}
 			}
 		],
